@@ -1,6 +1,9 @@
 type VibeTutorMessage = {
   action: string;
-  payload?: unknown;
+  payload: {
+    code: string;
+    action: string;
+  };
 };
 
 type MessageSender = {
@@ -30,8 +33,13 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onMessage.addListener(
-    (message: VibeTutorMessage, sender: any) => {
-      return handleMessage(message, sender as MessageSender);
+    (message: VibeTutorMessage, sender: MessageSender, sendResponse: any) => {
+      handleMessage(message)
+        .then(sendResponse)
+        .catch((error) =>
+          sendResponse({ success: false, error: String(error) })
+        );
+      return true;
     }
   );
 
@@ -69,7 +77,8 @@ async function seedDefaultSettings() {
   }
 }
 
-async function handleMessage(message: VibeTutorMessage, sender: MessageSender) {
+// async function handleMessage(message: VibeTutorMessage, sender: MessageSender) {
+async function handleMessage(message: VibeTutorMessage) {
   switch (message.action) {
     case "save-notes": {
       if (!isSaveNotesPayload(message.payload)) {
@@ -82,6 +91,16 @@ async function handleMessage(message: VibeTutorMessage, sender: MessageSender) {
         return { success: false, error: "Invalid guide mode payload" };
       }
       return handleGuideMode(message.payload);
+    }
+    case "check-code": {
+      if (!isCheckCodePayload(message.payload)) {
+        return { success: false, error: "Invalid check code payload" };
+      }
+      console.log("sending to handleCheckCode");
+      const data = await handleCheckCode(message.payload);
+      console.log("this is the data: ", data);
+      if (!data) return "failure failure";
+      return data;
     }
     case "solution": {
       if (!isSolutionPayload(message.payload)) {
@@ -103,8 +122,8 @@ async function handleMessage(message: VibeTutorMessage, sender: MessageSender) {
       }
       return handleAskAway(message.payload);
     }
-    case "get-tab-info":
-      return handleGetTabInfo(sender);
+    // case "get-tab-info":
+    //   return handleGetTabInfo(sender);
     case "panel-opened":
     case "panel-closed":
       console.debug(`VibeTutor: ${message.action}`, message.payload);
@@ -127,16 +146,17 @@ async function handleSaveNotes(payload: { notes: unknown[] }) {
 
 async function handleGuideMode(payload: { sessionId: string; code: string }) {
   console.debug("VibeTutor: guide-mode payload received", payload.sessionId);
-  // TODO: call helper that forwards payload.code to backend / LLM.
-  return {
-    success: true,
-    comments: [
-      {
-        id: crypto.randomUUID(),
-        message: "Guide mode not yet implemented.",
-      },
-    ],
-  };
+  return forwardCodeToBackend(payload.code, "guide-mode");
+}
+
+async function handleCheckCode(payload: { code: string; action: string }) {
+  console.debug("VibeTutor: check-code payload received");
+  const data = await forwardCodeToBackend(
+    payload.code,
+    payload.action ?? "code-check"
+  );
+  //console.log("this is the data received: ", data.reply);
+  return data.reply;
 }
 
 async function handleSolution(payload: { sessionId: string }) {
@@ -173,6 +193,43 @@ async function handleAskAway(payload: { sessionId: string; text: string }) {
   };
 }
 
+async function forwardCodeToBackend(code: string, action: string) {
+  console.log("sending code to backend:", { action });
+  console.log("this is the code: ", code);
+
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, action }),
+    });
+
+    const text = await response.text(); // read once
+
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+      //console.log("This is the data received: ", data);
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Backend error (${response.status}): ${
+          data?.detail ? JSON.stringify(data.detail) : text
+        }`,
+      };
+    }
+
+    return data ?? { success: true };
+  } catch (error) {
+    console.error("VibeTutor: backend request failed", error);
+    return { success: false, error: "Backend request failed" };
+  }
+}
+
 function handleGetTabInfo(sender: MessageSender) {
   if (!sender.tab) {
     return { success: false, error: "No tab context" };
@@ -200,6 +257,16 @@ function isGuideModePayload(
     typeof payload === "object" &&
     payload !== null &&
     typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
+    typeof (payload as { code?: unknown }).code === "string"
+  );
+}
+
+function isCheckCodePayload(
+  payload: unknown
+): payload is { code: string; requestType?: string } {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
     typeof (payload as { code?: unknown }).code === "string"
   );
 }

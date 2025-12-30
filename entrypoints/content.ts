@@ -116,7 +116,7 @@ function createFloatingWidget() {
 
   /* Sticky note look */
   background: rgba(255, 251, 147, 0.98);
-  border-radius: 14px;
+  border-radius: 4px;
   border: 1px solid rgba(0,0,0,0.10);
 
 /*  box-shadow:
@@ -215,7 +215,7 @@ function createFloatingWidget() {
   color: rgba(0,0,0,0.85);
 
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 4px;
 
   font-size: 14px;
   font-weight: 600;
@@ -266,13 +266,13 @@ function createFloatingWidget() {
 
   padding: 10px 12px;
 
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1px solid rgba(0,0,0,0.14);
   outline: none;
 
   background: rgba(255, 255, 255, 0.92);
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1;
 }
 .tutor-panel-prompt:focus{
   border-color: rgba(0,0,0,0.22);
@@ -283,9 +283,9 @@ function createFloatingWidget() {
 .tutor-panel-send{
   border: 1px solid rgba(0,0,0,0.12);
   background: rgba(4, 5, 4, 0.92);
-  color: rgba(0,0,0,0.85);
+  color: rgba(255, 255, 255, 0.85);
 
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 10px 14px;
 
   font-weight: 800;
@@ -587,6 +587,9 @@ function openTutorPanel() {
     prompt: "",
     position: null,
     size: null,
+    guideModeEnabled: false,
+    checkModeEnabled: false,
+    timerEnabled: false,
   };
   showTutorPanel(tutorPanel);
   hideWidget();
@@ -610,6 +613,9 @@ type TutorSession = {
   prompt: string;
   position: PanelPosition | null;
   size: PanelSize | null;
+  guideModeEnabled: boolean;
+  checkModeEnabled: boolean;
+  timerEnabled: boolean;
 };
 
 let currentTutorSession: TutorSession | null = null;
@@ -698,7 +704,7 @@ async function saveWidgetPosition() {}
 async function loadWidgetPosition() {}
 function handleTutorPanelActions() {}
 function guideMode() {}
-function checkMode() {}
+
 function createTimer() {}
 function sendChat() {}
 function minimizeWindow() {}
@@ -743,15 +749,63 @@ function positionWidgetFromPanel(panel: HTMLElement) {
   saveWidgetPosition();
 }
 
+function getCodeFromEditor(): string {
+  const inputArea = document.querySelector(
+    ".monaco-editor textarea.inputarea"
+  ) as HTMLTextAreaElement | null;
+
+  // 1) Best: Monaco input textarea (full content)
+  if (inputArea && inputArea.value.trim().length > 0) {
+    return inputArea.value;
+  }
+
+  // 2) Fallback: read rendered lines (can be incomplete if virtualized)
+  const viewLines = document.querySelector(
+    ".monaco-editor .view-lines"
+  ) as HTMLElement | null;
+
+  if (viewLines) {
+    const lines = Array.from(viewLines.querySelectorAll(".view-line"))
+      .map((line) => (line as HTMLElement).innerText.replace(/\u00a0/g, " "))
+      .join("\n");
+
+    if (lines.trim().length > 0) return lines;
+  }
+  return "";
+}
+
+async function checkMode(panel: HTMLElement, writtenCode: string) {
+  console.log("this is the written code: ", writtenCode);
+  const response = await browser.runtime.sendMessage({
+    action: "check-code",
+    payload: {
+      code: writtenCode, // <-- raw string
+      action: "check-code",
+    },
+  });
+  console.log("this is the respnse: ", response);
+  if (!response) return "Failure";
+  return response;
+}
+
 function setupTutorPanelEvents(panel: HTMLElement) {
   const closeButton =
     panel.querySelector<HTMLButtonElement>(".tutor-panel-close");
-  closeButton?.addEventListener("click", () => closeTutorPanel());
-
+  const checkModeClicked =
+    panel.querySelector<HTMLButtonElement>(".btn-help-mode");
+  const guideMode = panel.querySelector<HTMLButtonElement>(".btn-guide-mode");
   const prompt = panel.querySelector<HTMLTextAreaElement>(
     ".tutor-panel-prompt"
   );
   const content = panel.querySelector<HTMLElement>(".tutor-panel-content");
+
+  closeButton?.addEventListener("click", () => closeTutorPanel());
+  // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
+  checkModeClicked?.addEventListener("click", async () => {
+    const writtenCode = getCodeFromEditor();
+    const resp = await checkMode(panel, writtenCode);
+    //console.log("this is the response: ", resp);
+  });
 
   prompt?.addEventListener("input", () => {
     if (currentTutorSession) {
@@ -804,486 +858,3 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     document.addEventListener("mouseup", stopDragging);
   });
 }
-
-// function setupTutorPanelEvents(note: HTMLElement, noteId: string) {
-//   const header = note.querySelector(".sticky-note-header") as HTMLElement;
-//   const textarea = note.querySelector(
-//     ".sticky-note-textarea"
-//   ) as HTMLTextAreaElement;
-//   const noteTitle = note.querySelector(".note-title") as HTMLElement;
-//   const closeBtn = note.querySelector(".close-btn");
-//   const minimizeBtn = note.querySelector(".minimize-btn");
-//   const pinBtn = note.querySelector(".pin-btn");
-//   const resizeHandle = note.querySelector(".note-resize-handle") as HTMLElement;
-//   const transparencySlider = note.querySelector(
-//     ".transparency-slider"
-//   ) as HTMLInputElement;
-//   const deleteBtn = note.querySelector(".delete-btn");
-//   const fontSizeToggle = note.querySelector(".font-size-toggle") as HTMLElement;
-//   const fontSizePopup = note.querySelector(".font-size-popup") as HTMLElement;
-//   const increaseFontBtn = note.querySelector(".increase-font") as HTMLElement;
-//   const decreaseFontBtn = note.querySelector(".decrease-font") as HTMLElement;
-//   const fontSizeInput = note.querySelector(
-//     ".font-size-input"
-//   ) as HTMLInputElement;
-//   const toolbarToggleBtn = note.querySelector(
-//     ".toolbar-toggle-btn"
-//   ) as HTMLElement;
-//   const controlsBottom = note.querySelector(
-//     ".note-controls-bottom"
-//   ) as HTMLElement;
-
-//   let isDragging = false;
-//   let isResizing = false;
-//   let dragOffset = { x: 0, y: 0 };
-//   let isPinned = false;
-//   let isMinimized = false;
-//   let currentTransparency = parseFloat(transparencySlider.value);
-//   let currentFontSize = parseInt(fontSizeInput.value);
-//   let isReadOnly = false;
-//   let isNewNote = !note.dataset.noteId;
-//   let currentTitle = noteTitle.textContent || "New Note";
-//   let noteData = {
-//     id: noteId,
-//     title: currentTitle,
-//     content: textarea.value,
-//     fontSize: currentFontSize,
-//     transparency: currentTransparency,
-//     color: note.style.background,
-//     position: { x: 0, y: 0 },
-//     size: { width: 280, height: 180 },
-//   };
-
-//   // Editable title functionality
-//   let isEditingTitle = false;
-
-//   noteTitle.addEventListener("click", () => {
-//     if (isEditingTitle) return;
-
-//     isEditingTitle = true;
-//     const input = document.createElement("input");
-//     input.className = "note-title-input";
-//     input.value = noteTitle.textContent || "";
-//     input.maxLength = 20;
-
-//     noteTitle.replaceWith(input);
-//     input.focus();
-//     input.select();
-
-//     function finishEditing() {
-//       const newTitle = input.value.trim() || "New Note";
-//       currentTitle = newTitle;
-//       noteData.title = newTitle;
-
-//       const newSpan = document.createElement("span");
-//       newSpan.className = "note-title";
-//       newSpan.title = "Click to edit title";
-//       newSpan.textContent = newTitle;
-
-//       input.replaceWith(newSpan);
-//       isEditingTitle = false;
-
-//       // Re-attach click listener
-//       newSpan.addEventListener("click", () =>
-//         setupStickyNoteEvents(note, noteId)
-//       );
-//     }
-
-//     input.addEventListener("blur", finishEditing);
-//     input.addEventListener("keydown", (e) => {
-//       if (e.key === "Enter") {
-//         finishEditing();
-//       } else if (e.key === "Escape") {
-//         input.value = currentTitle;
-//         finishEditing();
-//       }
-//     });
-//   });
-
-//   // Set up initial color scheme based on note background with proper transparency
-//   const baseNoteColor = note.style.background || "rgba(255, 251, 147, 0.95)";
-//   // Extract RGB values and apply current transparency
-//   const rgbMatch = baseNoteColor.match(/rgba?\(([^)]+)\)/);
-//   const rgbValues = rgbMatch
-//     ? rgbMatch[1].split(",").slice(0, 3).join(",")
-//     : "255, 251, 147";
-
-//   const noteColor = `rgba(${rgbValues}, ${currentTransparency})`;
-//   const baseColor = `rgba(${rgbValues}, ${currentTransparency * 0.8})`;
-//   const lighterColor = `rgba(${rgbValues}, ${currentTransparency * 0.6})`;
-
-//   note.style.background = noteColor;
-//   noteData.color = noteColor;
-//   note.style.setProperty("--note-bg-80", baseColor);
-//   note.style.setProperty("--note-bg-60", lighterColor);
-//   note.style.setProperty("--note-opacity", currentTransparency.toString());
-
-//   // Transparency slider functionality
-//   transparencySlider.addEventListener("input", () => {
-//     currentTransparency = parseFloat(transparencySlider.value);
-//     note.style.setProperty("--note-opacity", currentTransparency.toString());
-
-//     // Update background colors to match transparency using RGB values
-//     const newBg = `rgba(${rgbValues}, ${currentTransparency})`;
-//     const new80Bg = `rgba(${rgbValues}, ${currentTransparency * 0.8})`;
-//     const new60Bg = `rgba(${rgbValues}, ${currentTransparency * 0.6})`;
-
-//     note.style.background = newBg;
-//     note.style.setProperty("--note-bg-80", new80Bg);
-//     note.style.setProperty("--note-bg-60", new60Bg);
-
-//     noteData.transparency = currentTransparency;
-//     noteData.color = newBg;
-//   });
-
-//   // Dragging functionality
-//   header.addEventListener("mousedown", (e) => {
-//     if ((e.target as HTMLElement).classList.contains("note-control-btn"))
-//       return;
-
-//     isDragging = true;
-//     const rect = note.getBoundingClientRect();
-//     dragOffset.x = e.clientX - rect.left;
-//     dragOffset.y = e.clientY - rect.top;
-
-//     // Add smooth cursor and disable transitions during drag
-//     document.body.style.cursor = "grabbing";
-//     note.style.transition = "none";
-//     note.style.userSelect = "none";
-
-//     document.addEventListener("mousemove", handleDrag);
-//     document.addEventListener("mouseup", stopDrag);
-//     e.preventDefault();
-//   });
-
-//   function handleDrag(e: MouseEvent) {
-//     if (!isDragging) return;
-
-//     const newX = e.clientX - dragOffset.x;
-//     const newY = e.clientY - dragOffset.y;
-
-//     // Constrain to viewport with padding
-//     const padding = 10;
-//     const maxX = window.innerWidth - note.offsetWidth - padding;
-//     const maxY = window.innerHeight - note.offsetHeight - padding;
-
-//     // Use transform for smoother performance
-//     const constrainedX = Math.max(padding, Math.min(maxX, newX));
-//     const constrainedY = Math.max(padding, Math.min(maxY, newY));
-
-//     note.style.left = constrainedX + "px";
-//     note.style.top = constrainedY + "px";
-//   }
-
-//   function stopDrag() {
-//     isDragging = false;
-//     document.body.style.cursor = "";
-//     note.style.transition = "all 0.3s ease";
-//     note.style.userSelect = "";
-
-//     document.removeEventListener("mousemove", handleDrag);
-//     document.removeEventListener("mouseup", stopDrag);
-//   }
-
-//   // Resizing functionality with smooth performance
-//   resizeHandle.addEventListener("mousedown", (e) => {
-//     isResizing = true;
-//     note.style.transition = "none"; // Disable transitions during resize
-//     document.body.style.cursor = "nw-resize";
-//     document.addEventListener("mousemove", handleResize);
-//     document.addEventListener("mouseup", stopResize);
-//     e.preventDefault();
-//     e.stopPropagation();
-//   });
-
-//   function handleResize(e: MouseEvent) {
-//     if (!isResizing) return;
-
-//     const rect = note.getBoundingClientRect();
-//     const newWidth = Math.max(250, Math.min(600, e.clientX - rect.left));
-//     const newHeight = Math.max(180, Math.min(500, e.clientY - rect.top));
-
-//     // Use requestAnimationFrame for smoother resizing
-//     requestAnimationFrame(() => {
-//       note.style.width = newWidth + "px";
-//       note.style.height = newHeight + "px";
-//     });
-//   }
-
-//   function stopResize() {
-//     isResizing = false;
-//     document.body.style.cursor = "";
-//     note.style.transition = "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"; // Re-enable transitions
-//     document.removeEventListener("mousemove", handleResize);
-//     document.removeEventListener("mouseup", stopResize);
-//   }
-
-//   // Control buttons
-//   closeBtn?.addEventListener("click", () => {
-//     // Remove from tracking
-//     openNotesList.delete(noteId);
-
-//     // Save before closing if there's content and it's a new note
-//     if (textarea.value.trim() && !isReadOnly && isNewNote) {
-//       saveNoteData();
-//     }
-
-//     // Decrement counter for new notes
-//     if (isNewNote) {
-//       activeNewNotesCount = Math.max(0, activeNewNotesCount - 1);
-//     }
-
-//     // Clear session if this is the current note
-//     if (currentNoteSession && currentNoteSession.id === noteId) {
-//       currentNoteSession = null;
-//     }
-
-//     note.classList.remove("open");
-//     setTimeout(() => note.remove(), 300);
-//   });
-
-//   minimizeBtn?.addEventListener("click", () => {
-//     isMinimized = !isMinimized;
-//     if (isMinimized) {
-//       // Store current size before minimizing
-//       noteData.size.width = note.offsetWidth;
-//       noteData.size.height = note.offsetHeight;
-
-//       note.classList.add("minimized");
-//       note.style.height = "36px"; // Just header height
-//       note.style.minHeight = "36px";
-//       (minimizeBtn as HTMLElement).textContent = "+";
-//       (minimizeBtn as HTMLElement).title = "Restore";
-//     } else {
-//       note.classList.remove("minimized");
-//       // Restore previous size
-//       note.style.height = noteData.size.height + "px";
-//       note.style.minHeight = "180px";
-//       (minimizeBtn as HTMLElement).textContent = "−";
-//       (minimizeBtn as HTMLElement).title = "Minimize";
-//     }
-//   });
-
-//   pinBtn?.addEventListener("click", () => {
-//     isPinned = !isPinned;
-//     if (isPinned) {
-//       note.classList.add("pinned");
-//       note.style.zIndex = "999999"; // Higher z-index for pinned notes
-//       (pinBtn as HTMLElement).classList.add("pinned");
-//       (pinBtn as HTMLElement).title = "Unpin note";
-//     } else {
-//       note.classList.remove("pinned");
-//       note.style.zIndex = "999997"; // Normal z-index
-//       (pinBtn as HTMLElement).classList.remove("pinned");
-//       (pinBtn as HTMLElement).title = "Pin note (always on top)";
-//     }
-//   });
-
-//   // Font size controls
-//   fontSizeToggle?.addEventListener("click", (e) => {
-//     e.stopPropagation();
-//     fontSizePopup.classList.toggle("active");
-//   });
-
-//   // Close font popup when clicking outside
-//   document.addEventListener("click", (e) => {
-//     if (
-//       !fontSizePopup.contains(e.target as Node) &&
-//       !fontSizeToggle.contains(e.target as Node)
-//     ) {
-//       fontSizePopup.classList.remove("active");
-//     }
-//   });
-
-//   function updateFontSize(newSize: number) {
-//     if (newSize >= 8 && newSize <= 24) {
-//       currentFontSize = newSize;
-//       textarea.style.fontSize = currentFontSize + "px";
-//       fontSizeInput.value = currentFontSize.toString();
-//       noteData.fontSize = currentFontSize;
-//     }
-//   }
-
-//   increaseFontBtn?.addEventListener("click", () => {
-//     updateFontSize(currentFontSize + 1);
-//   });
-
-//   decreaseFontBtn?.addEventListener("click", () => {
-//     updateFontSize(currentFontSize - 1);
-//   });
-
-//   // Direct font size input
-//   fontSizeInput?.addEventListener("input", () => {
-//     const newSize = parseInt(fontSizeInput.value);
-//     if (!isNaN(newSize)) {
-//       updateFontSize(newSize);
-//     }
-//   });
-
-//   fontSizeInput?.addEventListener("blur", () => {
-//     // Ensure valid range on blur
-//     const currentVal = parseInt(fontSizeInput.value);
-//     if (isNaN(currentVal) || currentVal < 8) {
-//       updateFontSize(8);
-//     } else if (currentVal > 24) {
-//       updateFontSize(24);
-//     }
-//   });
-
-//   // Toolbar toggle functionality
-//   let isToolbarHidden = false;
-//   toolbarToggleBtn?.addEventListener("click", (e) => {
-//     e.stopPropagation();
-//     isToolbarHidden = !isToolbarHidden;
-//     if (isToolbarHidden) {
-//       controlsBottom.classList.add("collapsed");
-//       toolbarToggleBtn.innerHTML = "&gt;";
-//       toolbarToggleBtn.title = "Show toolbar";
-//     } else {
-//       controlsBottom.classList.remove("collapsed");
-//       toolbarToggleBtn.innerHTML = "&lt;";
-//       toolbarToggleBtn.title = "Hide toolbar";
-//     }
-//   });
-
-//   // Delete button
-//   deleteBtn?.addEventListener("click", async () => {
-//     if (confirm("Delete this note?")) {
-//       // Remove from tracking
-//       openNotesList.delete(noteId);
-
-//       // Decrement counter for new notes
-//       if (isNewNote) {
-//         activeNewNotesCount = Math.max(0, activeNewNotesCount - 1);
-//       }
-
-//       // Clear session if this is the current note
-//       if (currentNoteSession && currentNoteSession.id === noteId) {
-//         currentNoteSession = null;
-//       }
-
-//       // Delete from storage if it's a saved note
-//       if (!isNewNote) {
-//         await deleteNote(noteId);
-//       }
-
-//       note.classList.remove("open");
-//       setTimeout(() => note.remove(), 200);
-//     }
-//   });
-
-//   // Toolbar toggle functionality
-//   toolbarToggleBtn?.addEventListener("click", () => {
-//     const toolbar = note.querySelector(".note-toolbar") as HTMLElement;
-//     const isCollapsed = toolbar.classList.contains("collapsed");
-
-//     if (isCollapsed) {
-//       toolbar.classList.remove("collapsed");
-//       toolbarToggleBtn.textContent = "‹";
-//       toolbarToggleBtn.title = "Hide toolbar";
-//     } else {
-//       toolbar.classList.add("collapsed");
-//       toolbarToggleBtn.textContent = "›";
-//       toolbarToggleBtn.title = "Show toolbar";
-//     }
-//   });
-
-//   // Minimize functionality - fold into header
-//   minimizeBtn?.addEventListener("click", () => {
-//     const minBtn = minimizeBtn as HTMLButtonElement;
-//     if (isMinimized) {
-//       // Restore
-//       note.style.height = noteData.size.height + "px";
-//       textarea.style.display = "block";
-//       controlsBottom.style.display = "block";
-//       resizeHandle.style.display = "block";
-//       minBtn.textContent = "−";
-//       minBtn.title = "Minimize";
-//       isMinimized = false;
-//     } else {
-//       // Minimize to header only
-//       noteData.size = { width: note.offsetWidth, height: note.offsetHeight };
-//       note.style.height = "36px";
-//       textarea.style.display = "none";
-//       controlsBottom.style.display = "none";
-//       resizeHandle.style.display = "none";
-//       minBtn.textContent = "+";
-//       minBtn.title = "Restore";
-//       isMinimized = true;
-//     }
-//   });
-
-//   // Lock button for existing notes
-//   const lockBtn = note.querySelector(".lock-btn") as HTMLButtonElement;
-//   if (lockBtn) {
-//     lockBtn.addEventListener("click", () => {
-//       if (isReadOnly) {
-//         textarea.readOnly = false;
-//         textarea.style.cursor = "text";
-//         lockBtn.textContent = "⚪";
-//         lockBtn.title = "Lock Note";
-//         isReadOnly = false;
-//       } else {
-//         textarea.readOnly = true;
-//         textarea.style.cursor = "default";
-//         lockBtn.textContent = "⚫";
-//         lockBtn.title = "Unlock Note";
-//         isReadOnly = true;
-//       }
-//     });
-//   }
-
-//   // Highlight effect when opening existing note
-//   if (!isNewNote) {
-//     note.style.border = "3px solid rgba(255, 255, 255, 0.8)";
-//     note.style.transform = "scale(1.05)";
-//     setTimeout(() => {
-//       note.style.border = "";
-//       note.style.transform = "";
-//     }, 800);
-//   }
-
-//   // Improved auto-save functionality to prevent duplicate notes
-//   let saveTimeout: NodeJS.Timeout;
-//   let lastSavedContent = textarea.value;
-
-//   function saveNoteData() {
-//     const currentContent = textarea.value.trim();
-//     noteData.content = currentContent;
-
-//     // Update position and size
-//     const rect = note.getBoundingClientRect();
-//     noteData.position = { x: rect.left, y: rect.top };
-//     noteData.size = { width: note.offsetWidth, height: note.offsetHeight };
-
-//     if (isNewNote && currentContent) {
-//       // For new notes, save for the first time
-//       saveCompleteNote(noteData);
-//       isNewNote = false;
-//       note.dataset.noteId = noteData.id;
-//     } else if (!isNewNote && currentContent !== lastSavedContent) {
-//       // For existing notes, update only if content changed
-//       updateCompleteNote(noteData);
-//     }
-
-//     lastSavedContent = currentContent;
-//   }
-
-//   textarea.addEventListener("input", () => {
-//     if (!isReadOnly) {
-//       clearTimeout(saveTimeout);
-//       saveTimeout = setTimeout(saveNoteData, 2000); // Increased timeout to reduce saves
-//     }
-//   });
-
-//   // Save when note is closed or minimized
-//   const saveOnClose = () => {
-//     if (textarea.value.trim() && !isReadOnly) {
-//       saveNoteData();
-//     }
-//   };
-
-//   // Save when closing or losing focus
-//   note.addEventListener("blur", saveOnClose);
-//   window.addEventListener("beforeunload", saveOnClose);
-// }

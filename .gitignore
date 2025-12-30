@@ -24,3 +24,10 @@ web-ext.config.ts
 *.njsproj
 *.sln
 *.sw?
+backend/bin
+backend/lib
+backend/.env
+backend/.venv
+backend/__pycache__
+backend/services/__pycache__
+.env
