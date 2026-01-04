@@ -25,6 +25,10 @@ let lastPosition = { x: 0, y: 0 };
 let menuCloseTimeout: number | null = null;
 let globalLogo: string; // Global variable for smiley face URL
 let globalMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+let flushInFlight: boolean;
+type Pair = [string, string];
+let queue: Pair[] = [];
+let currentBatch: Pair;
 
 function initializeWidget() {
   console.log("The widget is being loaded to the page");
@@ -437,33 +441,6 @@ function setupWidgetEvents() {
     }
   });
 
-  // Close menu when leaving main button area (but not if going to menu)
-  // mainButton.addEventListener("mouseleave", (e) => {
-  //   if (!isDragging) {
-  //     // Check if mouse is moving towards the menu with 50% larger tolerance area
-  //     const rect = menu.getBoundingClientRect();
-  //     const mouseX = e.clientX;
-  //     const mouseY = e.clientY;
-
-  //     // Calculate smaller tolerance area (reduced by 60%)
-  //     const tolerance = 24;
-
-  //     // If mouse is within menu bounds or tolerance area, don't close
-  //     const isNearMenu =
-  //       mouseX >= rect.left - tolerance &&
-  //       mouseX <= rect.right + tolerance &&
-  //       mouseY >= rect.top - tolerance &&
-  //       mouseY <= rect.bottom + tolerance;
-
-  //     if (!isNearMenu) {
-  //       menuCloseTimeout = setTimeout(() => {
-  //         //closeMenu();
-  //         menuCloseTimeout = null;
-  //       }, 200); // Increased delay for better UX
-  //     }
-  //   }
-  // });
-
   function handleMouseMove(e: MouseEvent) {
     const timeDiff = Date.now() - dragStartTime;
     const distance = Math.sqrt(
@@ -542,25 +519,6 @@ function setupWidgetEvents() {
     // Reset drag tracking
     hasMovedWhileDragging = false;
   }
-
-  // Menu button clicks with debounce
-  // let lastClickTime = 0;
-  // menu?.addEventListener("click", (e) => {
-  //   const target = e.target as HTMLElement;
-  //   const action = target.dataset.action;
-  //   const now = Date.now();
-
-  //   // Debounce clicks - prevent multiple clicks within 500ms
-  //   if (now - lastClickTime < 500) {
-  //     return;
-  //   }
-  //   lastClickTime = now;
-
-  //   if (action) {
-  //     console.log("Menu button clicked:", action);
-  //     handleMenuAction(action);
-  //   }
-  // });
 }
 
 function openTutorPanel() {
@@ -702,8 +660,196 @@ function isWidgetVisible() {}
 function setupMessageListener() {}
 async function saveWidgetPosition() {}
 async function loadWidgetPosition() {}
+
 function handleTutorPanelActions() {}
+let guideMinIdx = Number.POSITIVE_INFINITY;
+let guideMaxIdx = -1;
+let guideBatchTimerId: number | null = null;
+let guideBatchStarted = false;
+let guideTouchedLines = new Set<number>();
+let maxLines = 0;
+let guideAttachAttempts = 0;
+let guideDrainInFlight = false;
+
 function guideMode() {}
+
+function getEditorInputArea(): HTMLTextAreaElement | null {
+  return document.querySelector(
+    ".monaco-editor textarea.inputarea"
+  ) as HTMLTextAreaElement | null;
+}
+
+function getLineNumberFromIndex(code: string, idx: number) {
+  return code.slice(0, Math.max(0, idx)).split("\n").length;
+}
+
+function getFocusBlock(
+  code: string,
+  minIdx: number,
+  maxIdx: number,
+  extraLines = 1
+) {
+  console.log("this is hte minIdx for the focus block: ");
+  const safeMin = Math.max(0, Math.min(minIdx, code.length));
+  const safeMax = Math.max(0, Math.min(maxIdx, code.length));
+  let start = code.lastIndexOf("\n", safeMin - 1);
+  start = start === -1 ? 0 : start + 1;
+  let end = code.indexOf("\n", safeMax);
+  end = end === -1 ? code.length : end;
+  console.log("this is the start for the focus block: ", start);
+
+  // if (extraLines > 0) {
+  //   for (let i = 0; i < extraLines; i += 1) {
+  //     const prev = code.lastIndexOf("\n", start - 2);
+  //     start = prev === -1 ? 0 : prev + 1;
+  //     const next = code.indexOf("\n", end + 1);
+  //     end = next === -1 ? code.length : next;
+  //   }
+  // }
+
+  return {
+    focusBlock: code.slice(start, end),
+    focusStartIdx: start,
+    focusEndIdx: end,
+  };
+}
+
+function resetGuideBatch() {
+  guideTouchedLines.clear();
+  guideMinIdx = Number.POSITIVE_INFINITY;
+  guideMaxIdx = -1;
+  guideBatchStarted = false;
+  if (guideBatchTimerId !== null) {
+    window.clearTimeout(guideBatchTimerId);
+    guideBatchTimerId = null;
+  }
+}
+
+async function flushGuideBatch(trigger: "timer" | "threshold") {
+  // faulty
+  const fullCode = getCodeFromEditor(); // itseems Full code source is still inputArea.value: That’s the Monaco hidden textarea fragment, so line numbers and code can be wrong beyond line 9.
+  const inputArea = getEditorInputArea();
+  const lineNumber = Array.from(guideTouchedLines)[0] ?? 1;
+  if (!lineNumber) {
+    resetGuideBatch();
+    return;
+  }
+  //const focusBlock = inputArea.value ?? "";
+  if (!fullCode) {
+    resetGuideBatch();
+    return;
+  }
+  let focusLine = "";
+  if (fullCode) {
+    focusLine = getLineByNumber(fullCode, lineNumber);
+  }
+  queue.push([fullCode, focusLine]);
+  void drainGuideQueue();
+
+  // console.log(
+  //   "these are the guidelines that need to be added: ",
+  //   guideTouchedLines
+  // );
+  resetGuideBatch();
+}
+
+function getLineByNumber(code: string, lineNumber: number) {
+  const lines = code.split("\n");
+  return lines[lineNumber - 1] ?? "";
+}
+
+async function drainGuideQueue() {
+  if (guideDrainInFlight) return;
+  guideDrainInFlight = true;
+  try {
+    while (queue.length > 0) {
+      const [code, focusLine] = queue.shift()!;
+      console.log("This is the focus line: ", focusLine);
+      flushInFlight = true;
+      const resp = await browser.runtime.sendMessage({
+        action: "guide-mode",
+        payload: {
+          action: "guide-mode",
+          code,
+          focusLine,
+        },
+      });
+      if (!resp) {
+        console.log("failure for guide mode");
+      } else {
+        console.log("this is the reponse: ", resp);
+      }
+      flushInFlight = false;
+    }
+  } finally {
+    guideDrainInFlight = false;
+  }
+}
+
+function onGuideInput() {
+  if (!currentTutorSession?.guideModeEnabled) return;
+  const inputArea = getEditorInputArea();
+  if (!inputArea) return;
+  const fullCode = inputArea.value ?? ""; // to be checked if it get the whole code or not
+  const cursorIdx = inputArea.selectionStart ?? 0;
+
+  guideMinIdx = Math.min(guideMinIdx, cursorIdx);
+  guideMaxIdx = Math.max(guideMaxIdx, cursorIdx);
+
+  const lineNumber = getLineNumberFromIndex(fullCode, cursorIdx);
+  if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 0) {
+    guideTouchedLines.add(lineNumber);
+  }
+
+  if (!guideBatchStarted) {
+    guideBatchStarted = true;
+  }
+  if (guideBatchTimerId !== null) {
+    window.clearTimeout(guideBatchTimerId);
+  }
+  guideBatchTimerId = window.setTimeout(() => {
+    flushGuideBatch("timer");
+  }, 10000);
+
+  if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 1) {
+    flushGuideBatch("threshold");
+  }
+}
+
+function attachGuideListeners() {
+  const inputArea = getEditorInputArea();
+  //console.log("this is the input line: ", inputArea);
+  if (!inputArea) {
+    if (guideAttachAttempts < 5) {
+      guideAttachAttempts += 1;
+      window.setTimeout(attachGuideListeners, 500);
+    }
+    return;
+  }
+  inputArea.addEventListener("input", onGuideInput); // every time the user inputs characters, the onGuideInput function is called
+}
+
+function detachGuideListeners() {
+  const inputArea = getEditorInputArea();
+  if (!inputArea) return;
+  inputArea.removeEventListener("input", onGuideInput);
+}
+
+function highlightAskArea() {}
+
+async function askAnything(panel: HTMLElement, query: string) {
+  console.log("this is the query asked: ", query);
+  const response = await browser.runtime.sendMessage({
+    action: "ask-anything",
+    payload: {
+      query: query,
+      action: "ask-anything",
+    },
+  });
+  console.log("this is the response: ", response);
+  if (!response) return "Failure";
+  return response;
+}
 
 function createTimer() {}
 function sendChat() {}
@@ -749,33 +895,15 @@ function positionWidgetFromPanel(panel: HTMLElement) {
   saveWidgetPosition();
 }
 
-function getCodeFromEditor(): string {
+function getCodeFromEditor() {
   const inputArea = document.querySelector(
     ".monaco-editor textarea.inputarea"
   ) as HTMLTextAreaElement | null;
-
-  // 1) Best: Monaco input textarea (full content)
-  if (inputArea && inputArea.value.trim().length > 0) {
-    return inputArea.value;
-  }
-
-  // 2) Fallback: read rendered lines (can be incomplete if virtualized)
-  const viewLines = document.querySelector(
-    ".monaco-editor .view-lines"
-  ) as HTMLElement | null;
-
-  if (viewLines) {
-    const lines = Array.from(viewLines.querySelectorAll(".view-line"))
-      .map((line) => (line as HTMLElement).innerText.replace(/\u00a0/g, " "))
-      .join("\n");
-
-    if (lines.trim().length > 0) return lines;
-  }
-  return "";
+  return inputArea?.value;
 }
 
-async function checkMode(panel: HTMLElement, writtenCode: string) {
-  console.log("this is the written code: ", writtenCode);
+async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
+  console.log("this is the code written so far: ", writtenCode);
   const response = await browser.runtime.sendMessage({
     action: "check-code",
     payload: {
@@ -783,7 +911,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string) {
       action: "check-code",
     },
   });
-  console.log("this is the respnse: ", response);
+  //console.log("this is the respnse: ", response);
   if (!response) return "Failure";
   return response;
 }
@@ -794,17 +922,42 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   const checkModeClicked =
     panel.querySelector<HTMLButtonElement>(".btn-help-mode");
   const guideMode = panel.querySelector<HTMLButtonElement>(".btn-guide-mode");
+
+  guideMode?.addEventListener("click", () => {
+    if (!currentTutorSession) return;
+    currentTutorSession.guideModeEnabled =
+      !currentTutorSession.guideModeEnabled;
+    if (currentTutorSession.guideModeEnabled) {
+      attachGuideListeners();
+    } else {
+      detachGuideListeners();
+    }
+  });
+
   const prompt = panel.querySelector<HTMLTextAreaElement>(
     ".tutor-panel-prompt"
   );
+  const sendQuestion =
+    panel.querySelector<HTMLButtonElement>(".tutor-panel-send");
+
+  sendQuestion?.addEventListener("click", async () => {
+    if (!currentTutorSession?.prompt) return highlightAskArea();
+    else {
+      const toAsk = currentTutorSession.prompt;
+      const resp = await askAnything(panel, toAsk);
+      //console.log("this is the response from askanything: ", resp);
+      currentTutorSession.prompt = "";
+    }
+  });
+
   const content = panel.querySelector<HTMLElement>(".tutor-panel-content");
 
-  closeButton?.addEventListener("click", () => closeTutorPanel());
+  closeButton?.addEventListener("click", async () => closeTutorPanel());
   // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
   checkModeClicked?.addEventListener("click", async () => {
     const writtenCode = getCodeFromEditor();
     const resp = await checkMode(panel, writtenCode);
-    //console.log("this is the response: ", resp);
+    console.log("this is the response: ", resp);
   });
 
   prompt?.addEventListener("input", () => {

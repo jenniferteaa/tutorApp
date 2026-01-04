@@ -1,7 +1,8 @@
 type VibeTutorMessage = {
   action: string;
   payload: {
-    code: string;
+    query?: string;
+    code?: string;
     action: string;
   };
 };
@@ -116,11 +117,17 @@ async function handleMessage(message: VibeTutorMessage) {
     }
     case "go-to-workspace":
       return handleGoToWorkspace();
-    case "ask-away": {
+
+    case "ask-anything": {
       if (!isChatPayload(message.payload)) {
         return { success: false, error: "Invalid chat payload" };
       }
-      return handleAskAway(message.payload);
+      const data = await handleAskAway({
+        query: message.payload.query,
+        action: message.payload.action,
+      });
+      if (!data) return "Failure";
+      return data;
     }
     // case "get-tab-info":
     //   return handleGetTabInfo(sender);
@@ -144,9 +151,59 @@ async function handleSaveNotes(payload: { notes: unknown[] }) {
   }
 }
 
-async function handleGuideMode(payload: { sessionId: string; code: string }) {
-  console.debug("VibeTutor: guide-mode payload received", payload.sessionId);
-  return forwardCodeToBackend(payload.code, "guide-mode");
+async function handleGuideMode(payload: {
+  action: string;
+  code: string;
+  focusLine: string;
+}) {
+  console.debug(
+    "VibeTutor: guide-mode payload received with action: ",
+    payload.action
+  );
+  console.log("this is the payload at background.ts payload: ", payload);
+  return forwardCodeToBackendGuideMode(
+    payload.action,
+    payload.code,
+    payload.focusLine
+  );
+}
+
+async function forwardCodeToBackendGuideMode(
+  action: string,
+  code: string,
+  focusLine: string
+) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/llm/guide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, code, focusLine }),
+    });
+
+    const text = await response.text(); // read once
+
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+      //console.log("This is the data received: ", data);
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Backend error (${response.status}): ${
+          data?.detail ? JSON.stringify(data.detail) : text
+        }`,
+      };
+    }
+
+    return data ?? { success: true };
+  } catch (error) {
+    console.error("VibeTutor: backend request failed", error);
+    return { success: false, error: "Backend request failed" };
+  }
 }
 
 async function handleCheckCode(payload: { code: string; action: string }) {
@@ -156,6 +213,16 @@ async function handleCheckCode(payload: { code: string; action: string }) {
     payload.action ?? "code-check"
   );
   //console.log("this is the data received: ", data.reply);
+  return data.reply;
+}
+
+async function handleAskAway(payload: { query: string; action: string }) {
+  console.debug("VibeTutor: ask-anything payload received");
+  const data = await forwardCodeToBackend(
+    payload.query,
+    payload.action ?? "ask-anything"
+  );
+  console.log("this is the data received: ", data.reply);
   return data.reply;
 }
 
@@ -184,24 +251,30 @@ async function handleGoToWorkspace() {
   }
 }
 
-async function handleAskAway(payload: { sessionId: string; text: string }) {
-  console.debug("VibeTutor: ask-away prompt received", payload.sessionId);
-  // TODO: call chat helper / LLM
-  return {
-    success: true,
-    reply: "Chat endpoint not wired yet.",
-  };
-}
+// async function handleAskAway(payload: { sessionId: string; text: string }) {
+//   console.debug("VibeTutor: ask-away prompt received", payload.sessionId);
+//   // TODO: call chat helper / LLM
+//   return {
+//     success: true,
+//     reply: "Chat endpoint not wired yet.",
+//   };
+// }
 
-async function forwardCodeToBackend(code: string, action: string) {
-  console.log("sending code to backend:", { action });
-  console.log("this is the code: ", code);
+async function forwardCodeToBackend(
+  code: string,
+  action: string,
+  extra?: Record<string, unknown>
+  //extra?: Record<string, unknown> | string
+) {
+  //console.log("sending code to backend:", { action });
+  //console.log("this is the code: ", code);
+  //console.log("this is the extra: ", extra);
 
   try {
     const response = await fetch("http://127.0.0.1:8000/api/llm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, action }),
+      body: JSON.stringify({ code, action, ...extra }),
     });
 
     const text = await response.text(); // read once
@@ -252,12 +325,13 @@ function isSaveNotesPayload(payload: unknown): payload is { notes: unknown[] } {
 
 function isGuideModePayload(
   payload: unknown
-): payload is { sessionId: string; code: string } {
+): payload is { action: string; code: string; focusLine: string } {
   return (
     typeof payload === "object" &&
     payload !== null &&
-    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-    typeof (payload as { code?: unknown }).code === "string"
+    typeof (payload as { action?: unknown }).action === "string" &&
+    typeof (payload as { code?: unknown }).code === "string" &&
+    typeof (payload as { focusLine?: unknown }).focusLine === "string"
   );
 }
 
@@ -292,12 +366,12 @@ function isTimerPayload(
 
 function isChatPayload(
   payload: unknown
-): payload is { sessionId: string; text: string } {
+): payload is { query: string; action: string } {
   return (
     typeof payload === "object" &&
     payload !== null &&
-    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-    typeof (payload as { text?: unknown }).text === "string"
+    typeof (payload as { query?: unknown }).query === "string" &&
+    typeof (payload as { action?: unknown }).action === "string"
   );
 }
 
