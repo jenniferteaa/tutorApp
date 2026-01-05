@@ -548,6 +548,7 @@ function openTutorPanel() {
     guideModeEnabled: false,
     checkModeEnabled: false,
     timerEnabled: false,
+    rollingHistoryGuideMode: "",
   };
   showTutorPanel(tutorPanel);
   hideWidget();
@@ -574,6 +575,7 @@ type TutorSession = {
   guideModeEnabled: boolean;
   checkModeEnabled: boolean;
   timerEnabled: boolean;
+  rollingHistoryGuideMode: string;
 };
 
 let currentTutorSession: TutorSession | null = null;
@@ -743,6 +745,7 @@ async function flushGuideBatch(trigger: "timer" | "threshold") {
   if (fullCode) {
     focusLine = getLineByNumber(fullCode, lineNumber);
   }
+  console.log("Being pushed into the queue: ", focusLine);
   queue.push([fullCode, focusLine]);
   void drainGuideQueue();
 
@@ -819,6 +822,7 @@ function onGuideInput() {
 function attachGuideListeners() {
   const inputArea = getEditorInputArea();
   //console.log("this is the input line: ", inputArea);
+
   if (!inputArea) {
     if (guideAttachAttempts < 5) {
       guideAttachAttempts += 1;
