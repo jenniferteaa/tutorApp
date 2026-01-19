@@ -1,17 +1,23 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from services.llmRequests import requestingCodeCheck, answerAskanything, guideModeAssist
+from models import RollingStateGuideMode
 
 app = FastAPI()
 
 class CodeRequest(BaseModel):
+    sessionId: str
     code: str
     action: str
 
 class GuideModeRequest(BaseModel):
+    sessionId: str
     action: str
+    problem: str
+    topics: dict[str, list[str]]
     code: str
     focusLine: str
+    rollingStateGuideMode: RollingStateGuideMode
 
 @app.post("/api/llm")
 def llm(req: CodeRequest):
@@ -30,5 +36,9 @@ def llm(req: CodeRequest):
 def llmGuideMode(req: GuideModeRequest):
     match(req.action):
         case "guide-mode":
-            response = guideModeAssist(req.code, req.focusLine)
+            response = guideModeAssist(
+                req.problem, req.topics, req.code, req.focusLine, req.rollingStateGuideMode
+            )
             return {"success": True, "reply": response}
+        case _:
+            return {"success": False, "error": "Unknown guide mode action"}

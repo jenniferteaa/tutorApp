@@ -123,6 +123,7 @@ async function handleMessage(message: VibeTutorMessage) {
         return { success: false, error: "Invalid chat payload" };
       }
       const data = await handleAskAway({
+        sessionId: message.payload.sessionId,
         query: message.payload.query,
         action: message.payload.action,
       });
@@ -151,10 +152,25 @@ async function handleSaveNotes(payload: { notes: unknown[] }) {
   }
 }
 
+type RollingStateGuideMode = {
+  problem: string;
+  topics: Record<string, string[]>;
+  approach: string;
+  decisions: string[];
+  pitfallsFlagged: string[];
+  lastEdit: string;
+  nudges: string[];
+  thoughts_to_remember: string[];
+};
+
 async function handleGuideMode(payload: {
+  sessionId: string;
   action: string;
+  problem: string;
+  topics: Record<string, string[]>;
   code: string;
   focusLine: string;
+  rollingStateGuideMode: RollingStateGuideMode;
 }) {
   console.debug(
     "VibeTutor: guide-mode payload received with action: ",
@@ -162,22 +178,38 @@ async function handleGuideMode(payload: {
   );
   console.log("this is the payload at background.ts payload: ", payload);
   return forwardCodeToBackendGuideMode(
+    payload.sessionId,
     payload.action,
+    payload.problem,
+    payload.topics,
     payload.code,
-    payload.focusLine
+    payload.focusLine,
+    payload.rollingStateGuideMode
   );
 }
 
 async function forwardCodeToBackendGuideMode(
+  sessionId: string,
   action: string,
+  problem: string,
+  topics: Record<string, string[]>,
   code: string,
-  focusLine: string
+  focusLine: string,
+  rollingStateGuideMode: RollingStateGuideMode
 ) {
   try {
     const response = await fetch("http://127.0.0.1:8000/api/llm/guide", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, code, focusLine }),
+      body: JSON.stringify({
+        sessionId,
+        action,
+        problem,
+        topics,
+        code,
+        focusLine,
+        rollingStateGuideMode,
+      }),
     });
 
     const text = await response.text(); // read once
@@ -206,19 +238,29 @@ async function forwardCodeToBackendGuideMode(
   }
 }
 
-async function handleCheckCode(payload: { code: string; action: string }) {
+async function handleCheckCode(payload: {
+  sessionId: string;
+  code: string;
+  action: string;
+}) {
   console.debug("VibeTutor: check-code payload received");
   const data = await forwardCodeToBackend(
+    payload.sessionId,
     payload.code,
-    payload.action ?? "code-check"
+    payload.action ?? "check-code"
   );
   //console.log("this is the data received: ", data.reply);
   return data.reply;
 }
 
-async function handleAskAway(payload: { query: string; action: string }) {
+async function handleAskAway(payload: {
+  sessionId: string;
+  query: string;
+  action: string;
+}) {
   console.debug("VibeTutor: ask-anything payload received");
   const data = await forwardCodeToBackend(
+    payload.sessionId,
     payload.query,
     payload.action ?? "ask-anything"
   );
@@ -261,20 +303,21 @@ async function handleGoToWorkspace() {
 // }
 
 async function forwardCodeToBackend(
+  sessionId: string,
   code: string,
-  action: string,
-  extra?: Record<string, unknown>
+  action: string
+  //extra?: Record<string, unknown>
   //extra?: Record<string, unknown> | string
 ) {
-  //console.log("sending code to backend:", { action });
-  //console.log("this is the code: ", code);
+  console.log("sending code to backend:", { action });
+  console.log("this is the code: ", code);
   //console.log("this is the extra: ", extra);
 
   try {
     const response = await fetch("http://127.0.0.1:8000/api/llm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, action, ...extra }),
+      body: JSON.stringify({ sessionId, code, action }),
     });
 
     const text = await response.text(); // read once
@@ -323,25 +366,69 @@ function isSaveNotesPayload(payload: unknown): payload is { notes: unknown[] } {
   );
 }
 
-function isGuideModePayload(
-  payload: unknown
-): payload is { action: string; code: string; focusLine: string } {
+function isGuideModePayload(payload: unknown): payload is {
+  // is it good to leave this as unknown?
+  sessionId: string;
+  action: string;
+  problem: string;
+  topics: Record<string, string[]>;
+  code: string;
+  focusLine: string;
+  rollingStateGuideMode: RollingStateGuideMode;
+} {
+  const rollingState = (payload as { rollingStateGuideMode?: unknown })
+    .rollingStateGuideMode as Partial<RollingStateGuideMode> | undefined;
   return (
     typeof payload === "object" &&
     payload !== null &&
+    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
     typeof (payload as { action?: unknown }).action === "string" &&
+    typeof (payload as { problem?: unknown }).problem === "string" &&
+    typeof (payload as { topics?: unknown }).topics === "object" &&
+    (payload as { topics?: unknown }).topics !== null &&
+    Object.values(
+      (payload as { topics?: Record<string, unknown> }).topics ?? {}
+    ).every(
+      (entries) =>
+        Array.isArray(entries) &&
+        entries.every((entry) => typeof entry === "string")
+    ) &&
     typeof (payload as { code?: unknown }).code === "string" &&
-    typeof (payload as { focusLine?: unknown }).focusLine === "string"
+    typeof (payload as { focusLine?: unknown }).focusLine === "string" &&
+    typeof rollingState === "object" &&
+    rollingState !== null &&
+    typeof rollingState.problem === "string" &&
+    typeof rollingState.topics === "object" &&
+    rollingState.topics !== null &&
+    Object.values(rollingState.topics).every(
+      (entries) =>
+        Array.isArray(entries) &&
+        entries.every((entry) => typeof entry === "string")
+    ) &&
+    typeof rollingState.approach === "string" &&
+    Array.isArray(rollingState.decisions) &&
+    rollingState.decisions.every((entry) => typeof entry === "string") &&
+    Array.isArray(rollingState.pitfallsFlagged) &&
+    rollingState.pitfallsFlagged.every((entry) => typeof entry === "string") &&
+    typeof rollingState.lastEdit === "string" &&
+    Array.isArray(rollingState.nudges) &&
+    rollingState.nudges.every((entry) => typeof entry === "string") &&
+    Array.isArray(rollingState.thoughts_to_remember) &&
+    rollingState.thoughts_to_remember.every(
+      (entry) => typeof entry === "string"
+    )
   );
 }
 
 function isCheckCodePayload(
   payload: unknown
-): payload is { code: string; requestType?: string } {
+): payload is { sessionId: string; code: string; action?: string } {
   return (
     typeof payload === "object" &&
     payload !== null &&
-    typeof (payload as { code?: unknown }).code === "string"
+    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
+    typeof (payload as { code?: unknown }).code === "string" &&
+    typeof (payload as { action?: unknown }).action === "string"
   );
 }
 
@@ -366,10 +453,11 @@ function isTimerPayload(
 
 function isChatPayload(
   payload: unknown
-): payload is { query: string; action: string } {
+): payload is { sessionId: string; query: string; action: string } {
   return (
     typeof payload === "object" &&
     payload !== null &&
+    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
     typeof (payload as { query?: unknown }).query === "string" &&
     typeof (payload as { action?: unknown }).action === "string"
   );
