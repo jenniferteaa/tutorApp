@@ -539,8 +539,27 @@ function openTutorPanel() {
     console.log("There was an error creating a panel");
     return;
   }
+  const topicElements = document.querySelectorAll('a[href^="/tag/"]');
+
+  const topicsList = Array.from(topicElements)
+    .map((el) => el.getAttribute("href"))
+    .filter((href): href is string => !!href)
+    .map((href) =>
+      href.replace("/tag/", "").replace("/", "").replace("-", "_")
+    );
+
+  const topic: Record<string, string[]> = Object.fromEntries(
+    Array.from(new Set(topicsList)).map((t) => [t, []])
+  );
+
+  //console.log("These are the topics: ", topic);
+
+  const sessionId = crypto.randomUUID();
   currentTutorSession = {
     element: tutorPanel,
+    sessionId,
+    problem: "",
+    topics: topic,
     content: "",
     prompt: "",
     position: null,
@@ -548,7 +567,21 @@ function openTutorPanel() {
     guideModeEnabled: false,
     checkModeEnabled: false,
     timerEnabled: false,
-    rollingHistoryGuideMode: "",
+    rollingStateGuideMode: {
+      problem: "",
+      topics: {},
+      approach: "",
+      decisions: [],
+      pitfallsFlagged: [],
+      lastEdit: "",
+      nudges: [],
+      thoughts_to_remember: [],
+    },
+    sessionRollingHistory: {
+      qaHistory: [],
+      summary: "",
+      // should there be a to be summarized?
+    },
   };
   showTutorPanel(tutorPanel);
   hideWidget();
@@ -566,16 +599,36 @@ function openTutorPanel() {
   }, 100);
 }
 
+type SessionRollingHistoryLLM = {
+  qaHistory: string[];
+  summary: string;
+};
+
+type RollingStateGuideMode = {
+  problem: string;
+  topics: Record<string, string[]>;
+  approach: string;
+  decisions: string[];
+  pitfallsFlagged: string[];
+  lastEdit: string;
+  nudges: string[]; // keep last N
+  thoughts_to_remember: string[]; // keep all (unique)
+};
+
 type TutorSession = {
   element: HTMLElement;
+  sessionId: string;
   content: string;
+  problem: string;
+  topics: Record<string, string[]>;
   prompt: string;
   position: PanelPosition | null;
   size: PanelSize | null;
   guideModeEnabled: boolean;
   checkModeEnabled: boolean;
   timerEnabled: boolean;
-  rollingHistoryGuideMode: string;
+  rollingStateGuideMode: RollingStateGuideMode;
+  sessionRollingHistory: SessionRollingHistoryLLM;
 };
 
 let currentTutorSession: TutorSession | null = null;
@@ -745,7 +798,7 @@ async function flushGuideBatch(trigger: "timer" | "threshold") {
   if (fullCode) {
     focusLine = getLineByNumber(fullCode, lineNumber);
   }
-  console.log("Being pushed into the queue: ", focusLine);
+  //console.log("Being pushed into the queue: ", focusLine);
   queue.push([fullCode, focusLine]);
   void drainGuideQueue();
 
@@ -768,21 +821,98 @@ async function drainGuideQueue() {
     while (queue.length > 0) {
       const [code, focusLine] = queue.shift()!;
       console.log("This is the focus line: ", focusLine);
+      console.log("the code so far: ", code);
       flushInFlight = true;
       const resp = await browser.runtime.sendMessage({
         action: "guide-mode",
         payload: {
           action: "guide-mode",
+          sessionId: currentTutorSession?.sessionId ?? "",
+          problem: currentTutorSession?.problem ?? "",
+          topics: currentTutorSession?.topics,
           code,
           focusLine,
+          rollingStateGuideMode: currentTutorSession?.rollingStateGuideMode,
         },
       });
       if (!resp) {
         console.log("failure for guide mode");
       } else {
-        console.log("this is the reponse: ", resp);
+        // Append only list-like fields from the backend reply
+        // Put this into a separate function
+        //console.log("This is the response from the LLM: ", resp);
+        const reply = resp.success ? resp.reply : null;
+        if (reply?.state_update?.lastEdit?.trim() && currentTutorSession) {
+          currentTutorSession.rollingStateGuideMode.lastEdit =
+            reply.state_update.lastEdit;
+        }
+        const nudge = reply?.nudge;
+
+        if (typeof nudge === "string" && nudge.trim().length > 0) {
+          //console.log("this is the nudge: ", nudge);
+          currentTutorSession?.rollingStateGuideMode.nudges.push(nudge.trim());
+        }
+
+        const decision = reply?.state_update?.decisions;
+
+        if (typeof decision === "string" && decision.trim().length > 0) {
+          //console.log("this is the decisions: ", decisions);
+          currentTutorSession?.rollingStateGuideMode.decisions.push(
+            decision.trim()
+          );
+        }
+
+        const pitfalls = reply?.state_update?.pitfallsFlagged;
+        if (typeof pitfalls === "string" && pitfalls.trim().length > 0) {
+          //console.log("this is the pitfallsFlagged: ", pitfallsFlagged);
+          currentTutorSession?.rollingStateGuideMode.pitfallsFlagged.push(
+            pitfalls.trim()
+          );
+        }
+
+        const thoughts_to_remember = reply?.thoughts_to_remember;
+        if (
+          typeof thoughts_to_remember === "string" &&
+          thoughts_to_remember.trim().length > 0
+        ) {
+          // console.log(
+          //   "this is the thoughts_to_remember: ",
+          //   thoughts_to_remember
+          // );
+          currentTutorSession?.rollingStateGuideMode.thoughts_to_remember.push(
+            thoughts_to_remember.trim()
+          );
+        }
+
+        if (reply?.topics && typeof reply.topics === "object") {
+          for (const [topic, raw] of Object.entries(
+            reply.topics as Record<string, unknown>
+          )) {
+            const values = Array.isArray(raw)
+              ? raw
+              : typeof raw === "string" && raw.trim()
+              ? [raw.trim()]
+              : [];
+            //console.log("These are the topic values: ", values);
+            if (values.length === 0) continue;
+
+            if (currentTutorSession) {
+              currentTutorSession.rollingStateGuideMode.topics[topic] ??= [];
+              currentTutorSession.rollingStateGuideMode.topics[topic].push(
+                ...values
+              );
+            }
+          }
+        }
+        //console.log("this is if the notes are similar: ", reply?.topictoprint);
+        //console.log(
+        //   "this is if the nudges are similar: ",
+        //   reply?.isSimilarNudges
+        // );
+        console.log(currentTutorSession);
+
+        flushInFlight = false;
       }
-      flushInFlight = false;
     }
   } finally {
     guideDrainInFlight = false;
@@ -792,6 +922,7 @@ async function drainGuideQueue() {
 function onGuideInput() {
   if (!currentTutorSession?.guideModeEnabled) return;
   const inputArea = getEditorInputArea();
+  // here, fetch the line number from the inputarea, write a separate function from getEditorInputArea
   if (!inputArea) return;
   const fullCode = inputArea.value ?? ""; // to be checked if it get the whole code or not
   const cursorIdx = inputArea.selectionStart ?? 0;
@@ -846,6 +977,7 @@ async function askAnything(panel: HTMLElement, query: string) {
   const response = await browser.runtime.sendMessage({
     action: "ask-anything",
     payload: {
+      sessionId: currentTutorSession?.sessionId ?? "",
       query: query,
       action: "ask-anything",
     },
@@ -900,10 +1032,20 @@ function positionWidgetFromPanel(panel: HTMLElement) {
 }
 
 function getCodeFromEditor() {
-  const inputArea = document.querySelector(
-    ".monaco-editor textarea.inputarea"
-  ) as HTMLTextAreaElement | null;
-  return inputArea?.value;
+  // const inputArea = document.querySelector(
+  //   ".lines-content.monaco-editor-background"
+  //   //".monaco-editor textarea.inputarea"
+  // ) as HTMLTextAreaElement | null;
+
+  const codeText = (
+    document.querySelector(
+      ".monaco-scrollable-element.editor-scrollable.vs.mac"
+    ) as HTMLElement | null
+  )?.innerText;
+  //.lines-content.monaco-editor-background
+  return codeText ?? "";
+
+  //return inputArea?.value;
 }
 
 async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
@@ -911,11 +1053,12 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
   const response = await browser.runtime.sendMessage({
     action: "check-code",
     payload: {
+      sessionId: currentTutorSession?.sessionId ?? "",
       code: writtenCode, // <-- raw string
       action: "check-code",
     },
   });
-  //console.log("this is the respnse: ", response);
+  console.log("this is the respnse: ", response);
   if (!response) return "Failure";
   return response;
 }
@@ -960,6 +1103,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
   checkModeClicked?.addEventListener("click", async () => {
     const writtenCode = getCodeFromEditor();
+    //console.log("this is the written code: ", writtenCode);
     const resp = await checkMode(panel, writtenCode);
     console.log("this is the response: ", resp);
   });
