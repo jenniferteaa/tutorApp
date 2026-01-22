@@ -552,14 +552,26 @@ function openTutorPanel() {
     Array.from(new Set(topicsList)).map((t) => [t, []])
   );
 
-  //console.log("These are the topics: ", topic);
+  const rollingTopics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  > = Object.fromEntries(
+    Array.from(new Set(topicsList)).map((t) => [
+      t,
+      { thoughts_to_remember: [], pitfalls: [] },
+    ])
+  );
+
+  const title =
+    document.querySelector("div.text-title-large a")?.textContent?.trim() ?? "";
+  console.log(title);
 
   const sessionId = crypto.randomUUID();
   currentTutorSession = {
     element: tutorPanel,
     sessionId,
-    problem: "",
-    topics: topic,
+    problem: title,
+    topics: rollingTopics,
     content: "",
     prompt: "",
     position: null,
@@ -568,14 +580,10 @@ function openTutorPanel() {
     checkModeEnabled: false,
     timerEnabled: false,
     rollingStateGuideMode: {
-      problem: "",
-      topics: {},
-      approach: "",
-      decisions: [],
-      pitfallsFlagged: [],
-      lastEdit: "",
+      problem: title,
       nudges: [],
-      thoughts_to_remember: [],
+      // topics: rollingTopics,
+      lastEdit: "",
     },
     sessionRollingHistory: {
       qaHistory: [],
@@ -606,13 +614,12 @@ type SessionRollingHistoryLLM = {
 
 type RollingStateGuideMode = {
   problem: string;
-  topics: Record<string, string[]>;
-  approach: string;
-  decisions: string[];
-  pitfallsFlagged: string[];
-  lastEdit: string;
   nudges: string[]; // keep last N
-  thoughts_to_remember: string[]; // keep all (unique)
+  // topics: Record<
+  //   string,
+  //   { thoughts_to_remember: string[]; pitfalls: string[] }
+  // >;
+  lastEdit: string;
 };
 
 type TutorSession = {
@@ -620,7 +627,10 @@ type TutorSession = {
   sessionId: string;
   content: string;
   problem: string;
-  topics: Record<string, string[]>;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
   prompt: string;
   position: PanelPosition | null;
   size: PanelSize | null;
@@ -840,7 +850,7 @@ async function drainGuideQueue() {
       } else {
         // Append only list-like fields from the backend reply
         // Put this into a separate function
-        //console.log("This is the response from the LLM: ", resp);
+        console.log("This is the response from the LLM: ", resp);
         const reply = resp.success ? resp.reply : null;
         if (reply?.state_update?.lastEdit?.trim() && currentTutorSession) {
           currentTutorSession.rollingStateGuideMode.lastEdit =
@@ -853,62 +863,46 @@ async function drainGuideQueue() {
           currentTutorSession?.rollingStateGuideMode.nudges.push(nudge.trim());
         }
 
-        const decision = reply?.state_update?.decisions;
-
-        if (typeof decision === "string" && decision.trim().length > 0) {
-          //console.log("this is the decisions: ", decisions);
-          currentTutorSession?.rollingStateGuideMode.decisions.push(
-            decision.trim()
-          );
-        }
-
-        const pitfalls = reply?.state_update?.pitfallsFlagged;
-        if (typeof pitfalls === "string" && pitfalls.trim().length > 0) {
-          //console.log("this is the pitfallsFlagged: ", pitfallsFlagged);
-          currentTutorSession?.rollingStateGuideMode.pitfallsFlagged.push(
-            pitfalls.trim()
-          );
-        }
-
-        const thoughts_to_remember = reply?.thoughts_to_remember;
-        if (
-          typeof thoughts_to_remember === "string" &&
-          thoughts_to_remember.trim().length > 0
-        ) {
-          // console.log(
-          //   "this is the thoughts_to_remember: ",
-          //   thoughts_to_remember
-          // );
-          currentTutorSession?.rollingStateGuideMode.thoughts_to_remember.push(
-            thoughts_to_remember.trim()
-          );
-        }
-
-        if (reply?.topics && typeof reply.topics === "object") {
+        const topics = reply?.topics;
+        if (topics && typeof topics === "object") {
           for (const [topic, raw] of Object.entries(
-            reply.topics as Record<string, unknown>
+            topics as Record<string, unknown>
           )) {
-            const values = Array.isArray(raw)
-              ? raw
-              : typeof raw === "string" && raw.trim()
-              ? [raw.trim()]
-              : [];
-            //console.log("These are the topic values: ", values);
-            if (values.length === 0) continue;
+            if (!raw || typeof raw !== "object") continue;
 
-            if (currentTutorSession) {
-              currentTutorSession.rollingStateGuideMode.topics[topic] ??= [];
-              currentTutorSession.rollingStateGuideMode.topics[topic].push(
-                ...values
+            const thoughts = (raw as { thoughts_to_remember?: unknown })
+              .thoughts_to_remember;
+            const pitfalls = (raw as { pitfalls?: unknown }).pitfalls;
+
+            const thoughtValues = Array.isArray(thoughts)
+              ? thoughts
+              : typeof thoughts === "string" && thoughts.trim()
+              ? [thoughts.trim()]
+              : [];
+
+            const pitfallValues = Array.isArray(pitfalls)
+              ? pitfalls
+              : typeof pitfalls === "string" && pitfalls.trim()
+              ? [pitfalls.trim()]
+              : [];
+
+            if (!currentTutorSession) continue;
+            currentTutorSession.topics[topic] ??= {
+              thoughts_to_remember: [],
+              pitfalls: [],
+            };
+
+            if (thoughtValues.length > 0) {
+              currentTutorSession.topics[topic].thoughts_to_remember.push(
+                ...thoughtValues
               );
+            }
+            if (pitfallValues.length > 0) {
+              currentTutorSession.topics[topic].pitfalls.push(...pitfallValues);
             }
           }
         }
-        //console.log("this is if the notes are similar: ", reply?.topictoprint);
-        //console.log(
-        //   "this is if the nudges are similar: ",
-        //   reply?.isSimilarNudges
-        // );
+
         console.log(currentTutorSession);
 
         flushInFlight = false;
@@ -1054,6 +1048,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
     action: "check-code",
     payload: {
       sessionId: currentTutorSession?.sessionId ?? "",
+      topics: currentTutorSession?.topics,
       code: writtenCode, // <-- raw string
       action: "check-code",
     },

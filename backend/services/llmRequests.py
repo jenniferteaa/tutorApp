@@ -2,7 +2,8 @@ import os
 import time
 from dotenv import load_dotenv
 from openai import OpenAI
-from models import RollingStateGuideMode
+from models import RollingStateGuideMode, TopicNotes
+from pydantic import BaseModel
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
 
@@ -25,7 +26,7 @@ def log_token_usage(label: str, usage: dict) -> None:
         f"{label} token usage - prompt: {usage['prompt_tokens']}, "
         f"completion: {usage['completion_tokens']}, total: {usage['total_tokens']}"
     )
-def requestingCodeCheck(code: str):
+def requestingCodeCheck(topics: dict[str, TopicNotes], code: str):
     prompt = f"""
 
     Given the following code, perform checks.
@@ -77,102 +78,16 @@ def answerAskanything(code: str):
     
 
 
-def guideModeAssist(problem: str, topics: dict, code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode):
+def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode):
     problem = problem
-    topics = rollingStateGuideMode.topics
+    topics = topics
     fullCode = code
     focusBlock = focusLine
     nudgesSoFar = rollingStateGuideMode.nudges
 #    - Place it into EXACTLY ONE relevant topic array
     system_prompt = """
-    You are a coding guide.
-    
-    Your job is to give minimal, precise guidance while a user is solving a Leetcode coding problem.
-    
-    You are given:
-    - Full code
-    - A Focus block (the most recent meaningful edit)
-    - Nudges present
-    - Topics with existing notes
-
-
-
-    ────────────────────────
-    STRICT RULES (MANDATORY)
-    ────────────────────────
-
-    1. If the user is on the right track, return an empty response:
-    - nudge = ""
-    - topics = all topic arrays empty
-
-    2. If you give a non-empty nudge, you MUST:
-    - Only produce a nudge if the Focus block introduces a NEW mistake. If the mistake is already present in RollingStateGuideMode, return empty.
-    - Actual nudges when it comes to problem solving thinking
-    - For nudges, help the user in their thinking process by suggesting them the correct method to follow to solve the problem
-    
-
-
-    3. Only write into topic keys that already exist in the input topics.
-    - Do NOT invent new topic keys
-    - Add topic-wise tips not related to the problem
-    - The knowledge points should not be a result of the problem context, but general knowldge pertaining to this data structure
-    - only if a mistake reveals a conceptual gap that the user could use keeping note of
-    - One-line factual statements
-    - Key notes that can be provided to the user regarding this topic not just specific to the problem
-    - Written as neutral facts, not advice or commands
-    - Keep tips short, principle-based, and non-procedural.
-
-    STRICT OUTPUT RULE:
-    - The "topics" object MUST contain ONLY keys from the provided Topics JSON.
-    - Do NOT invent new keys (no “Syntax”).
-    - If no topic applies, return the same keys with empty arrays.
-
-    Example output shape (keys are fixed by input):
-    {
-    "nudge": "",
-    "topics": {
-        "two_pointers": [],
-        "string": ["Two pointers work well when input is sorted."],
-        "binary_tree": []
-    }
-    }
-
-
-    4. Focus ONLY on the Focus block and how it affects correctness or progress.
-    - Do NOT rewrite code
-    - Do NOT give full solutions
-    - Do NOT ask questions like “what’s next”
-
-    5. Nudges must be short (1–2 lines max) and focus on reasoning or risk,
-    NOT syntax trivia or style unless it blocks correctness.
-
-    ────────────────────────
-    ROLLING HISTORY & DE-DUPLICATION
-    ────────────────────────
-
-    Before writing ANY content, you MUST check RollingStateGuideMode:
-
-    - rollingStateGuideMode.nudges
-    - rollingStateGuideMode.topics (all topic arrays)
-
-    DE-DUPLICATION RULES:
-    - If the same or very similar idea already exists in the rolling state,
-    DO NOT repeat it.
-    - If the user repeats the SAME mistake, you may add ONE NEW nuance only.
-    - If unsure whether something already exists, assume it exists and return empty.
-
-    ANTI-REPETITION SAFETY:
-    - Never rephrase old advice just to sound different.
-    - Only add content if it is genuinely NEW.
-
-    DO NOT repeat existing values.
-
-    ────────────────────────
-    DELTA-ONLY OUTPUT
-    ────────────────────────
-
-    Your output must contain ONLY NEW items to append.
-    Do NOT re-list existing items from RollingStateGuideMode.
+    You are a tutor guide that helps a student write meaningful, time and space efficient code.
+    You will do this by monitoring each focus line sent to you, along with a code block the focus line lies within.
 
     ────────────────────────
     OUTPUT FORMAT (MANDATORY)
@@ -186,11 +101,50 @@ def guideModeAssist(problem: str, topics: dict, code: str, focusLine: str, rolli
     Schema:
     "nudge": string,                        // "" if no nudge
     "topics": {                             // ONLY new items
-        "<topic>": string[]    // max 1–2 short bullets
+        "<topic>": {
+            "thoughts_to_remember": string[],
+            "pitfalls": string[]
+        }
     }
 
+    Use the key name exactly as shown: "topics" (do not use "topics_update").
 
-    All strings must be concise.
+    ALWAYS output both arrays for any topic you include (even if one is empty).
+    If a topic has no NEW items, do not include that topic key at all in the output.
+
+    If you do not find any errors in the focus line OR you have nothing NEW to add,
+    return exactly:
+    {"nudge":"", "topics":{}}
+
+    If you do find any errors in the focus line sent, do as following:
+
+    1) Go through the "thoughts_to_remember" and the "pitfalls" section under each of the topic
+    and see if the issue has already been addressed.
+    - Each pitfall has its corresponding thoughts_to_remember
+    IMPORTANT: Do NOT repeat or rephrase anything already present in the provided Topics JSON
+    or in the "nudges so far". If it already exists (or is essentially the same idea),
+    output nothing new for it.
+
+    2) Stick to the topics given in the input and DO NOT invent new topics.
+
+    3) Go through the "nudges field provided".
+
+    4) The nudge MUST include the fully corrected line (verbatim) in the same line.
+        Example: Focus line: "Stringbuilder st = stringbuilder();" -> nudge: "Use StringBuilder st = new StringBuilder(); because Java is case-sensitive and constructors require new."
+
+    5) If not syntax related, but if you think the focus line can cause long term issues,
+    provide a 1 liner nudge to tell the user what they can do instead.
+
+    6) The nudges should be 1 line, short and precise.
+    The "nudge" must be a SINGLE LINE string:
+    no newline characters, no markdown, no backticks, no code fences.
+
+    7) Now that the issue is addressed by you, there is a "pitfalls" field under each respective topic:
+    - For the topic you are providing a nudge on, first fill the pitfalls section with what the user has done, including the input.
+    - Next in the "thoughts_to_remember" section of the same topic, provide a solution for it.
+    - Both the "pitfalls" and the "thoughts_to_remember" should be a 1 liner, short and precise.
+
+    REMEMBER: You are preparing this student to get better at solving leetcode problems.
     """
 
     user_prompt = f"""
@@ -202,8 +156,8 @@ def guideModeAssist(problem: str, topics: dict, code: str, focusLine: str, rolli
     Focus block:
     {focusBlock}
 
-    Topics (JSON — keys are fixed, arrays contain existing notes):
-    {json.dumps(topics, indent=2)}
+    Topics (JSON — keys are fixed, values contain existing notes):
+    {json.dumps(_serialize_topics(topics), indent=2)}
 
     Nudges so far:
     {nudgesSoFar}
@@ -212,26 +166,33 @@ def guideModeAssist(problem: str, topics: dict, code: str, focusLine: str, rolli
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            # model="gpt-3.5-turbo",
+            model="gpt-4.1-mini-2025-04-14", # this made all the differnece! consider using groq
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.2,
+            # temperature=0.2,
         )
-        log_token_usage("guide-mode", get_token_usage(response))
+        #log_token_usage("guide-mode", get_token_usage(response))
         
 
         raw = response.choices[0].message.content or ""
         data = parse_json_response(raw)
 
+
         topicNotes = data.get("topics") or {}
         isSimilar = False
         if topicNotes:
-            isSimilar = processingSimilarInputTopic(rollingStateGuideMode, topicNotes)
-        if isSimilar:
-            data["topics"] = {}
-            data["topictoprint"] = topicNotes
+            deduped = processingSimilarInputTopic(
+                rollingStateGuideMode, topicNotes, topics
+            )
+            if deduped is True:
+                isSimilar = True
+                data["topics"] = {}
+                data["topictoprint"] = topicNotes
+            else:
+                data["topics"] = deduped
         data["isSimilar"] = isSimilar
            
         
@@ -244,7 +205,7 @@ def guideModeAssist(problem: str, topics: dict, code: str, focusLine: str, rolli
             data["nudgediscarded"] = nudges
 
         data["isSimilarNudges"] = isSimilarNudges
-        print("LLM data: ", data)
+        #print("LLM data: ", data)
         
 
         return data
@@ -253,6 +214,15 @@ def guideModeAssist(problem: str, topics: dict, code: str, focusLine: str, rolli
         print("Error:", e)
         time.sleep(60)
         return {"nudge": "Error calling model.", "thoughts_to_remember": [], "state_update": {}}
+
+def _serialize_topics(topics: dict[str, TopicNotes]) -> dict[str, dict]:
+    serialized: dict[str, dict] = {}
+    for key, value in topics.items():
+        if isinstance(value, BaseModel):
+            serialized[key] = value.model_dump()
+        else:
+            serialized[key] = value
+    return serialized
 
 
 def parse_json_response(text: str) -> dict:
@@ -266,4 +236,3 @@ def parse_json_response(text: str) -> dict:
             text = text[start:end+1]
 
     return json.loads(text)
-

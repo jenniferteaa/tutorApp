@@ -154,20 +154,29 @@ async function handleSaveNotes(payload: { notes: unknown[] }) {
 
 type RollingStateGuideMode = {
   problem: string;
-  topics: Record<string, string[]>;
-  approach: string;
-  decisions: string[];
-  pitfallsFlagged: string[];
+  nudges: string[]; // keep last N
   lastEdit: string;
-  nudges: string[];
-  thoughts_to_remember: string[];
 };
+
+// type RollingStateGuideMode = {
+//   problem: string;
+//   topics: Record<string, string[]>;
+//   approach: string;
+//   decisions: string[];
+//   pitfallsFlagged: string[];
+//   lastEdit: string;
+//   nudges: string[];
+//   thoughts_to_remember: string[];
+// };
 
 async function handleGuideMode(payload: {
   sessionId: string;
   action: string;
   problem: string;
-  topics: Record<string, string[]>;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
   code: string;
   focusLine: string;
   rollingStateGuideMode: RollingStateGuideMode;
@@ -192,7 +201,10 @@ async function forwardCodeToBackendGuideMode(
   sessionId: string,
   action: string,
   problem: string,
-  topics: Record<string, string[]>,
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >,
   code: string,
   focusLine: string,
   rollingStateGuideMode: RollingStateGuideMode
@@ -366,59 +378,108 @@ function isSaveNotesPayload(payload: unknown): payload is { notes: unknown[] } {
   );
 }
 
+function isTopicBucket(value: unknown): value is {
+  thoughts_to_remember: string[];
+  pitfalls: string[];
+} {
+  if (typeof value !== "object" || value === null) return false;
+
+  const v = value as Record<string, unknown>; // tofix-> instead of unknown here, try to define some structure
+
+  return (
+    Array.isArray(v.thoughts_to_remember) &&
+    v.thoughts_to_remember.every((x) => typeof x === "string") &&
+    Array.isArray(v.pitfalls) &&
+    v.pitfalls.every((x) => typeof x === "string")
+  );
+}
+
 function isGuideModePayload(payload: unknown): payload is {
-  // is it good to leave this as unknown?
   sessionId: string;
   action: string;
   problem: string;
-  topics: Record<string, string[]>;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
   code: string;
   focusLine: string;
   rollingStateGuideMode: RollingStateGuideMode;
 } {
-  const rollingState = (payload as { rollingStateGuideMode?: unknown })
-    .rollingStateGuideMode as Partial<RollingStateGuideMode> | undefined;
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-    typeof (payload as { action?: unknown }).action === "string" &&
-    typeof (payload as { problem?: unknown }).problem === "string" &&
-    typeof (payload as { topics?: unknown }).topics === "object" &&
-    (payload as { topics?: unknown }).topics !== null &&
-    Object.values(
-      (payload as { topics?: Record<string, unknown> }).topics ?? {}
-    ).every(
-      (entries) =>
-        Array.isArray(entries) &&
-        entries.every((entry) => typeof entry === "string")
-    ) &&
-    typeof (payload as { code?: unknown }).code === "string" &&
-    typeof (payload as { focusLine?: unknown }).focusLine === "string" &&
-    typeof rollingState === "object" &&
-    rollingState !== null &&
-    typeof rollingState.problem === "string" &&
-    typeof rollingState.topics === "object" &&
-    rollingState.topics !== null &&
-    Object.values(rollingState.topics).every(
-      (entries) =>
-        Array.isArray(entries) &&
-        entries.every((entry) => typeof entry === "string")
-    ) &&
-    typeof rollingState.approach === "string" &&
-    Array.isArray(rollingState.decisions) &&
-    rollingState.decisions.every((entry) => typeof entry === "string") &&
-    Array.isArray(rollingState.pitfallsFlagged) &&
-    rollingState.pitfallsFlagged.every((entry) => typeof entry === "string") &&
-    typeof rollingState.lastEdit === "string" &&
-    Array.isArray(rollingState.nudges) &&
-    rollingState.nudges.every((entry) => typeof entry === "string") &&
-    Array.isArray(rollingState.thoughts_to_remember) &&
-    rollingState.thoughts_to_remember.every(
-      (entry) => typeof entry === "string"
-    )
+  if (typeof payload !== "object" || payload === null) return false;
+
+  const p = payload as Record<string, unknown>;
+
+  if (typeof p.sessionId !== "string") return false;
+  if (typeof p.action !== "string") return false;
+  if (typeof p.problem !== "string") return false;
+  if (typeof p.code !== "string") return false;
+  if (typeof p.focusLine !== "string") return false;
+
+  if (typeof p.topics !== "object" || p.topics === null) return false;
+
+  return Object.values(p.topics as Record<string, unknown>).every(
+    isTopicBucket
   );
 }
+
+// function isGuideModePayload(payload: unknown): payload is {
+//   // is it good to leave this as unknown?
+//   sessionId: string;
+//   action: string;
+//   problem: string;
+//   topics: Record<
+//     string,
+//     { thoughts_to_remember: string[]; pitfalls: string[] }
+//   >;
+//   code: string;
+//   focusLine: string;
+//   rollingStateGuideMode: RollingStateGuideMode;
+// } {
+//   const rollingState = (payload as { rollingStateGuideMode?: unknown })
+//     .rollingStateGuideMode as Partial<RollingStateGuideMode> | undefined;
+//   return (
+//     typeof payload === "object" &&
+//     payload !== null &&
+//     typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
+//     typeof (payload as { action?: unknown }).action === "string" &&
+//     typeof (payload as { problem?: unknown }).problem === "string" &&
+//     typeof (payload as { topics?: unknown }).topics === "object" &&
+//     (payload as { topics?: unknown }).topics !== null &&
+//     Object.values(
+//       (payload as { topics?: Record<string, unknown> }).topics ?? {}
+//     ).every(
+//       (entries) =>
+//         Array.isArray(entries) &&
+//         entries.every((entry) => typeof entry === "string")
+//     ) &&
+//     typeof (payload as { code?: unknown }).code === "string" &&
+//     typeof (payload as { focusLine?: unknown }).focusLine === "string" &&
+//     typeof rollingState === "object" &&
+//     rollingState !== null &&
+//     typeof rollingState.problem === "string" &&
+//     typeof topics === "object" &&
+//     topics !== null &&
+//     Object.values(topics).every(
+//       (entries) =>
+//         Array.isArray(entries) &&
+//         entries.every((entry) => typeof entry === "string")
+//       // ) &&
+//       // typeof rollingState.approach === "string" &&
+//       // Array.isArray(rollingState.decisions) &&
+//       // rollingState.decisions.every((entry) => typeof entry === "string") &&
+//       // Array.isArray(rollingState.pitfallsFlagged) &&
+//       // rollingState.pitfallsFlagged.every((entry) => typeof entry === "string") &&
+//       // typeof rollingState.lastEdit === "string" &&
+//       // Array.isArray(rollingState.nudges) &&
+//       // rollingState.nudges.every((entry) => typeof entry === "string") &&
+//       // Array.isArray(rollingState.thoughts_to_remember) &&
+//       // rollingState.thoughts_to_remember.every(
+//       //   (entry) => typeof entry === "string"
+//       //
+//     )
+//   );
+// }
 
 function isCheckCodePayload(
   payload: unknown
