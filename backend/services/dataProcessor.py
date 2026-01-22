@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 import Levenshtein
-
-from models import RollingStateGuideMode
+from models import RollingStateGuideMode, TopicNotes
 
 
 def _normalize_topic_note(note: str) -> str:
@@ -12,17 +11,36 @@ def _normalize_topic_note(note: str) -> str:
 
 
 def _iter_topic_notes(
-    rolling_state: RollingStateGuideMode, topic: str
+    rolling_state: RollingStateGuideMode, topic: str, topics: dict[str, TopicNotes]
 ) -> Iterable[str]:
-    notes = rolling_state.topics.get(topic)
+    notes = topics.get(topic)
     if not notes:
         return []
-    return notes
+    if isinstance(notes, dict):
+        thoughts = notes.get("thoughts_to_remember") or []
+        pitfalls = notes.get("pitfalls") or []
+    else:
+        thoughts = notes.thoughts_to_remember
+        pitfalls = notes.pitfalls
+    return [
+        note
+        for note in [*thoughts, *pitfalls]
+        if isinstance(note, str) and note
+    ]
+
+# if is_similar_topic_note(
+#                 rolling_state,
+#                 topic,
+#                 topics,
+#                 note,
+#                 threshold=threshold,
+#             ):
 
 
 def is_similar_topic_note(
     rolling_state: RollingStateGuideMode,
     topic: str,
+    topics: dict[str, TopicNotes],
     note: str,
     *,
     threshold: float = 0.85,
@@ -35,7 +53,7 @@ def is_similar_topic_note(
     if not candidate:
         return False
 
-    for existing in _iter_topic_notes(rolling_state, topic):
+    for existing in _iter_topic_notes(rolling_state, topic, topics):
         existing_norm = _normalize_topic_note(existing)
         if not existing_norm:
             continue
@@ -45,36 +63,65 @@ def is_similar_topic_note(
 
 def processingSimilarInputTopic(
     rolling_state: RollingStateGuideMode,
-    topicNotes: dict[str, list[str]] | dict[str, str],
+    topicNotes: dict[str, dict[str, list[str] | str]] | dict[str, str],
+    topics: dict[str, TopicNotes],
     *,
     threshold: float = 0.85,
 ):
     """
-    Return True if any incoming topic note is similar to an existing note
-    under the same topic in rolling_state.
+    Return True if all incoming topic notes are duplicates.
+    Otherwise return a deduped topics object with only new notes.
     """
     if not topicNotes:
-        return False
+        return True
+
+    deduped: dict[str, dict[str, list[str]]] = {}
 
     for topic, raw_notes in topicNotes.items():
-        notes: list[str]
-        if isinstance(raw_notes, list):
-            notes = [note for note in raw_notes if isinstance(note, str)]
-        elif isinstance(raw_notes, str):
-            notes = [raw_notes]
-        else:
+        notes: dict[str, list[str]] = {
+            "thoughts_to_remember": [],
+            "pitfalls": [],
+        }
+
+        if not isinstance(raw_notes, dict):
             continue
 
-        for note in notes:
-            if is_similar_topic_note(
-                rolling_state,
-                topic,
-                note,
-                threshold=threshold,
-            ):
-                return True
+        thoughts = raw_notes.get("thoughts_to_remember")
+        pitfalls = raw_notes.get("pitfalls")
 
-    return False
+        if isinstance(thoughts, list):
+            notes["thoughts_to_remember"].extend(
+                note for note in thoughts if isinstance(note, str)
+            )
+        elif isinstance(thoughts, str):
+            notes["thoughts_to_remember"].append(thoughts)
+
+        if isinstance(pitfalls, list):
+            notes["pitfalls"].extend(
+                note for note in pitfalls if isinstance(note, str)
+            )
+        elif isinstance(pitfalls, str):
+            notes["pitfalls"].append(pitfalls)
+
+        remaining: dict[str, list[str]] = {
+            "thoughts_to_remember": [],
+            "pitfalls": [],
+        }
+        for key in ("thoughts_to_remember", "pitfalls"):
+            for note in notes[key]:
+                if not is_similar_topic_note(
+                    rolling_state,
+                    topic,
+                    topics,
+                    note,
+                    threshold=threshold,
+                ):
+                    remaining[key].append(note)
+
+        if remaining["thoughts_to_remember"] or remaining["pitfalls"]:
+            deduped[topic] = remaining
+
+    return True if not deduped else deduped
     
 
 def processingSimilarInputNudges(
