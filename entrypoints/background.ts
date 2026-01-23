@@ -35,14 +35,54 @@ export default defineBackground(() => {
 
   browser.runtime.onMessage.addListener(
     (message: VibeTutorMessage, sender: MessageSender, sendResponse: any) => {
+      if ((message as { type?: string })?.type === "GET_MONACO_CODE") {
+        return;
+      }
       handleMessage(message)
         .then(sendResponse)
         .catch((error) =>
-          sendResponse({ success: false, error: String(error) })
+          sendResponse({ success: false, error: String(error) }),
         );
       return true;
-    }
+    },
   );
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type !== "GET_MONACO_CODE") return;
+    if (!sender.tab?.id) {
+      sendResponse({ ok: false, error: "missing tab id" });
+      return;
+    }
+
+    chrome.scripting.executeScript(
+      {
+        target: { tabId: sender.tab.id },
+        world: "MAIN",
+        func: () => {
+          const monaco = window.monaco;
+          if (!monaco?.editor) return { ok: false, error: "monaco not found" };
+
+          const editors = monaco.editor.getEditors?.() || [];
+          const editor = editors[0];
+          if (editor?.getValue) {
+            return { ok: true, code: editor.getValue() };
+          }
+
+          const models = monaco.editor.getModels?.() || [];
+          if (models.length) {
+            return { ok: true, code: models[0].getValue() };
+          }
+
+          return { ok: false, error: "no editor/model found" };
+        },
+      },
+      (results) => {
+        sendResponse(results?.[0]?.result ?? { ok: false, error: "no result" });
+      },
+    );
+
+    return true;
+  });
 
   browser.tabs.onUpdated.addListener(
     (_tabId: any, changeInfo: any, tab: any) => {
@@ -58,7 +98,7 @@ export default defineBackground(() => {
       }
 
       console.debug("VibeTutor: tab updated", tab.url);
-    }
+    },
   );
 });
 
@@ -99,7 +139,7 @@ async function handleMessage(message: VibeTutorMessage) {
       }
       console.log("sending to handleCheckCode");
       const data = await handleCheckCode(message.payload);
-      console.log("this is the data: ", data);
+      //console.log("this is the data: ", data);
       if (!data) return "failure failure";
       return data;
     }
@@ -183,7 +223,7 @@ async function handleGuideMode(payload: {
 }) {
   console.debug(
     "VibeTutor: guide-mode payload received with action: ",
-    payload.action
+    payload.action,
   );
   console.log("this is the payload at background.ts payload: ", payload);
   return forwardCodeToBackendGuideMode(
@@ -193,7 +233,7 @@ async function handleGuideMode(payload: {
     payload.topics,
     payload.code,
     payload.focusLine,
-    payload.rollingStateGuideMode
+    payload.rollingStateGuideMode,
   );
 }
 
@@ -207,7 +247,7 @@ async function forwardCodeToBackendGuideMode(
   >,
   code: string,
   focusLine: string,
-  rollingStateGuideMode: RollingStateGuideMode
+  rollingStateGuideMode: RollingStateGuideMode,
 ) {
   try {
     const response = await fetch("http://127.0.0.1:8000/api/llm/guide", {
@@ -252,14 +292,19 @@ async function forwardCodeToBackendGuideMode(
 
 async function handleCheckCode(payload: {
   sessionId: string;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
   code: string;
   action: string;
 }) {
   console.debug("VibeTutor: check-code payload received");
-  const data = await forwardCodeToBackend(
+  const data = await forwardCodeForCheckMode(
     payload.sessionId,
+    payload.topics,
     payload.code,
-    payload.action ?? "check-code"
+    payload.action ?? "check-code",
   );
   //console.log("this is the data received: ", data.reply);
   return data.reply;
@@ -274,7 +319,7 @@ async function handleAskAway(payload: {
   const data = await forwardCodeToBackend(
     payload.sessionId,
     payload.query,
-    payload.action ?? "ask-anything"
+    payload.action ?? "ask-anything",
   );
   console.log("this is the data received: ", data.reply);
   return data.reply;
@@ -314,10 +359,48 @@ async function handleGoToWorkspace() {
 //   };
 // }
 
+async function forwardCodeForCheckMode(
+  sessionId: string,
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >,
+  code: string,
+  action: string,
+) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, topics, code, action }),
+    });
+    const text = await response.text();
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+      //console.log("This is the data received: ", data);
+    } catch {
+      data = null;
+    }
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Backend error (${response.status}): ${
+          data?.detail ? JSON.stringify(data.detail) : text
+        }`,
+      };
+    }
+    return data ?? { success: true };
+  } catch (error) {
+    console.error("Code check failed", error);
+    return { success: false, error: "Backend code check request failed" };
+  }
+}
+
 async function forwardCodeToBackend(
   sessionId: string,
   code: string,
-  action: string
+  action: string,
   //extra?: Record<string, unknown>
   //extra?: Record<string, unknown> | string
 ) {
@@ -419,7 +502,7 @@ function isGuideModePayload(payload: unknown): payload is {
   if (typeof p.topics !== "object" || p.topics === null) return false;
 
   return Object.values(p.topics as Record<string, unknown>).every(
-    isTopicBucket
+    isTopicBucket,
   );
 }
 
@@ -481,15 +564,24 @@ function isGuideModePayload(payload: unknown): payload is {
 //   );
 // }
 
-function isCheckCodePayload(
-  payload: unknown
-): payload is { sessionId: string; code: string; action?: string } {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-    typeof (payload as { code?: unknown }).code === "string" &&
-    typeof (payload as { action?: unknown }).action === "string"
+function isCheckCodePayload(payload: unknown): payload is {
+  sessionId: string;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
+  code: string;
+  action?: string;
+} {
+  if (typeof payload != "object" || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+
+  if (typeof p.sessionId !== "string") return false;
+  if (typeof p.topics !== "object" || p.topics === null) return false;
+  if (typeof p.code !== "string") return false;
+  if (typeof p.action !== "string") return false;
+  return Object.values(p.topics as Record<string, unknown>).every(
+    isTopicBucket,
   );
 }
 
@@ -502,7 +594,7 @@ function isSolutionPayload(payload: unknown): payload is { sessionId: string } {
 }
 
 function isTimerPayload(
-  payload: unknown
+  payload: unknown,
 ): payload is { sessionId: string; timer: unknown } {
   return (
     typeof payload === "object" &&
@@ -513,7 +605,7 @@ function isTimerPayload(
 }
 
 function isChatPayload(
-  payload: unknown
+  payload: unknown,
 ): payload is { sessionId: string; query: string; action: string } {
   return (
     typeof payload === "object" &&

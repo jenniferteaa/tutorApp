@@ -2,7 +2,7 @@ export default defineContentScript({
   matches: ["<all_urls>"],
   main() {
     console.log(
-      "🎯 StickyNoteAI v2.2 CSS FIXED + MENU POSITIONING - Loading..."
+      "🎯 StickyNoteAI v2.2 CSS FIXED + MENU POSITIONING - Loading...",
     );
 
     // Wait for DOM to be ready
@@ -29,6 +29,8 @@ let flushInFlight: boolean;
 type Pair = [string, string];
 let queue: Pair[] = [];
 let currentBatch: Pair;
+let editedLineQueue: string[] = [];
+let lastGuideCursorLine: number | null = null;
 
 function initializeWidget() {
   console.log("The widget is being loaded to the page");
@@ -347,14 +349,14 @@ function setupWidgetEvents() {
     let constrainedX = Math.max(margin, x);
     constrainedX = Math.min(
       windowWidth - widgetRect.width - margin,
-      constrainedX
+      constrainedX,
     );
 
     // Constrain vertical position
     let constrainedY = Math.max(margin, y);
     constrainedY = Math.min(
       windowHeight - widgetRect.height - margin,
-      constrainedY
+      constrainedY,
     );
 
     return { x: constrainedX, y: constrainedY };
@@ -380,7 +382,7 @@ function setupWidgetEvents() {
       distanceToLeft,
       distanceToRight,
       distanceToTop,
-      distanceToBottom
+      distanceToBottom,
     );
 
     let snappedX = x;
@@ -445,7 +447,7 @@ function setupWidgetEvents() {
     const timeDiff = Date.now() - dragStartTime;
     const distance = Math.sqrt(
       Math.pow(e.clientX - startPosition.x, 2) +
-        Math.pow(e.clientY - startPosition.y, 2)
+        Math.pow(e.clientY - startPosition.y, 2),
     );
 
     // Start dragging if moved > 3px or held for > 100ms
@@ -545,11 +547,11 @@ function openTutorPanel() {
     .map((el) => el.getAttribute("href"))
     .filter((href): href is string => !!href)
     .map((href) =>
-      href.replace("/tag/", "").replace("/", "").replace("-", "_")
+      href.replace("/tag/", "").replace("/", "").replace("-", "_"),
     );
 
   const topic: Record<string, string[]> = Object.fromEntries(
-    Array.from(new Set(topicsList)).map((t) => [t, []])
+    Array.from(new Set(topicsList)).map((t) => [t, []]),
   );
 
   const rollingTopics: Record<
@@ -559,7 +561,7 @@ function openTutorPanel() {
     Array.from(new Set(topicsList)).map((t) => [
       t,
       { thoughts_to_remember: [], pitfalls: [] },
-    ])
+    ]),
   );
 
   const title =
@@ -598,7 +600,7 @@ function openTutorPanel() {
   // Auto-focus the textarea when created via shortcut
   setTimeout(() => {
     const textarea = tutorPanel.querySelector(
-      ".tutor-panel-prompt"
+      ".tutor-panel-prompt",
     ) as HTMLTextAreaElement;
     if (textarea) {
       textarea.focus();
@@ -735,12 +737,15 @@ let guideTouchedLines = new Set<number>();
 let maxLines = 0;
 let guideAttachAttempts = 0;
 let guideDrainInFlight = false;
+let lastGuideSelectionLine: number | null = null;
+let lastGuideFlushLine: number | null = null;
+let lastGuideFlushAt = 0;
 
 function guideMode() {}
 
 function getEditorInputArea(): HTMLTextAreaElement | null {
   return document.querySelector(
-    ".monaco-editor textarea.inputarea"
+    ".monaco-editor textarea.inputarea",
   ) as HTMLTextAreaElement | null;
 }
 
@@ -752,7 +757,7 @@ function getFocusBlock(
   code: string,
   minIdx: number,
   maxIdx: number,
-  extraLines = 1
+  extraLines = 1,
 ) {
   console.log("this is hte minIdx for the focus block: ");
   const safeMin = Math.max(0, Math.min(minIdx, code.length));
@@ -790,33 +795,78 @@ function resetGuideBatch() {
   }
 }
 
-async function flushGuideBatch(trigger: "timer" | "threshold") {
+async function flushGuideBatch(
+  trigger: "timer" | "threshold" | "cursor-change",
+) {
   // faulty
-  const fullCode = getCodeFromEditor(); // itseems Full code source is still inputArea.value: That’s the Monaco hidden textarea fragment, so line numbers and code can be wrong beyond line 9.
+  const fullCode = getCodeFromEditor(); // redundant
   const inputArea = getEditorInputArea();
+  const inputAreaCode = inputArea?.value ?? "";
   const lineNumber = Array.from(guideTouchedLines)[0] ?? 1;
   if (!lineNumber) {
     resetGuideBatch();
     return;
   }
+  const now = Date.now();
+  if (lastGuideFlushLine === lineNumber && now - lastGuideFlushAt < 250) {
+    return;
+  }
+  lastGuideFlushLine = lineNumber;
+  lastGuideFlushAt = now;
   //const focusBlock = inputArea.value ?? "";
   if (!fullCode) {
+    // redundant
     resetGuideBatch();
     return;
   }
   let focusLine = "";
-  if (fullCode) {
-    focusLine = getLineByNumber(fullCode, lineNumber);
+  if (inputAreaCode) {
+    focusLine = getLineByNumber(inputAreaCode, lineNumber);
   }
-  //console.log("Being pushed into the queue: ", focusLine);
-  queue.push([fullCode, focusLine]);
-  void drainGuideQueue();
 
-  // console.log(
-  //   "these are the guidelines that need to be added: ",
-  //   guideTouchedLines
-  // );
-  resetGuideBatch();
+  if (!focusLine.trim() && lineNumber > 1 && inputAreaCode) {
+    const previousLine = getLineByNumber(inputAreaCode, lineNumber - 1);
+    if (previousLine.trim()) {
+      focusLine = previousLine;
+    }
+  }
+
+  let codeSoFar = fullCode;
+  try {
+    const res = await browser.runtime.sendMessage({ type: "GET_MONACO_CODE" });
+    if (res?.ok && typeof res.code === "string") {
+      codeSoFar = res.code;
+    }
+  } catch {
+    // Fallback to DOM-extracted code when background messaging fails.
+  }
+  if (!isValidFocusLine(focusLine)) {
+    resetGuideBatch();
+  } else {
+    queue.push([codeSoFar, focusLine]);
+    void drainGuideQueue();
+
+    resetGuideBatch();
+  }
+}
+
+function isValidFocusLine(focusLine: string): boolean {
+  // this is only for Java, for now. Have to implement for python, c, c#, c++, js and all
+  const trimmed = focusLine.trim();
+  if (!trimmed) return false;
+  if (/[;}]\s*$/.test(trimmed)) return true;
+  if (trimmed === "else" || trimmed === "if" || trimmed === "while") {
+    return false;
+  }
+  if (/^else\b/.test(trimmed) && /\{\s*$/.test(trimmed)) {
+    return false;
+  }
+  const wordCount = trimmed
+    .replace(/[{}();]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+  return wordCount > 1;
 }
 
 function getLineByNumber(code: string, lineNumber: number) {
@@ -830,7 +880,7 @@ async function drainGuideQueue() {
   try {
     while (queue.length > 0) {
       const [code, focusLine] = queue.shift()!;
-      console.log("This is the focus line: ", focusLine);
+      console.log("This is the focus line: ", focusLine); // this is not the one, get the correct focus line
       console.log("the code so far: ", code);
       flushInFlight = true;
       const resp = await browser.runtime.sendMessage({
@@ -850,7 +900,7 @@ async function drainGuideQueue() {
       } else {
         // Append only list-like fields from the backend reply
         // Put this into a separate function
-        console.log("This is the response from the LLM: ", resp);
+        //console.log("This is the response from the LLM: ", resp);
         const reply = resp.success ? resp.reply : null;
         if (reply?.state_update?.lastEdit?.trim() && currentTutorSession) {
           currentTutorSession.rollingStateGuideMode.lastEdit =
@@ -866,7 +916,7 @@ async function drainGuideQueue() {
         const topics = reply?.topics;
         if (topics && typeof topics === "object") {
           for (const [topic, raw] of Object.entries(
-            topics as Record<string, unknown>
+            topics as Record<string, unknown>,
           )) {
             if (!raw || typeof raw !== "object") continue;
 
@@ -877,14 +927,14 @@ async function drainGuideQueue() {
             const thoughtValues = Array.isArray(thoughts)
               ? thoughts
               : typeof thoughts === "string" && thoughts.trim()
-              ? [thoughts.trim()]
-              : [];
+                ? [thoughts.trim()]
+                : [];
 
             const pitfallValues = Array.isArray(pitfalls)
               ? pitfalls
               : typeof pitfalls === "string" && pitfalls.trim()
-              ? [pitfalls.trim()]
-              : [];
+                ? [pitfalls.trim()]
+                : [];
 
             if (!currentTutorSession) continue;
             currentTutorSession.topics[topic] ??= {
@@ -894,7 +944,7 @@ async function drainGuideQueue() {
 
             if (thoughtValues.length > 0) {
               currentTutorSession.topics[topic].thoughts_to_remember.push(
-                ...thoughtValues
+                ...thoughtValues,
               );
             }
             if (pitfallValues.length > 0) {
@@ -903,7 +953,7 @@ async function drainGuideQueue() {
           }
         }
 
-        console.log(currentTutorSession);
+        //console.log(currentTutorSession);
 
         flushInFlight = false;
       }
@@ -913,18 +963,27 @@ async function drainGuideQueue() {
   }
 }
 
-function onGuideInput() {
+// this function does not give any code
+function getCodeElementFullCode(): HTMLTextAreaElement | null {
+  return document.querySelector(
+    ".view-lines.monaco-mouse-cursor-text",
+    // ".monaco-scrollable-element.editor-scrollable.vs.mac",
+  ) as HTMLTextAreaElement | null;
+  //.lines-content.monaco-editor-background
+}
+
+function onGuideInput(event: Event) {
+  // remove the event from here
   if (!currentTutorSession?.guideModeEnabled) return;
   const inputArea = getEditorInputArea();
   // here, fetch the line number from the inputarea, write a separate function from getEditorInputArea
   if (!inputArea) return;
+
   const fullCode = inputArea.value ?? ""; // to be checked if it get the whole code or not
   const cursorIdx = inputArea.selectionStart ?? 0;
 
-  guideMinIdx = Math.min(guideMinIdx, cursorIdx);
-  guideMaxIdx = Math.max(guideMaxIdx, cursorIdx);
-
   const lineNumber = getLineNumberFromIndex(fullCode, cursorIdx);
+  //maybeEnqueueEditedLine(event, lineNumber);
   if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 0) {
     guideTouchedLines.add(lineNumber);
   }
@@ -944,6 +1003,25 @@ function onGuideInput() {
   }
 }
 
+function onGuideSelectionChange() {
+  if (!currentTutorSession?.guideModeEnabled) return;
+  if (!guideBatchStarted) return;
+  const inputArea = getEditorInputArea();
+  if (!inputArea) return;
+  const fullCode = inputArea.value ?? "";
+  const cursorIdx = inputArea.selectionStart ?? 0;
+  const lineNumber = getLineNumberFromIndex(fullCode, cursorIdx);
+  if (lastGuideSelectionLine === null) {
+    lastGuideSelectionLine = lineNumber;
+    return;
+  }
+  if (lineNumber === lastGuideSelectionLine) return;
+  lastGuideSelectionLine = lineNumber;
+  if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 1) {
+    flushGuideBatch("cursor-change");
+  }
+}
+
 function attachGuideListeners() {
   const inputArea = getEditorInputArea();
   //console.log("this is the input line: ", inputArea);
@@ -956,12 +1034,14 @@ function attachGuideListeners() {
     return;
   }
   inputArea.addEventListener("input", onGuideInput); // every time the user inputs characters, the onGuideInput function is called
+  document.addEventListener("selectionchange", onGuideSelectionChange);
 }
 
 function detachGuideListeners() {
   const inputArea = getEditorInputArea();
   if (!inputArea) return;
   inputArea.removeEventListener("input", onGuideInput);
+  document.removeEventListener("selectionchange", onGuideSelectionChange);
 }
 
 function highlightAskArea() {}
@@ -1012,8 +1092,8 @@ function positionWidgetFromPanel(panel: HTMLElement) {
     10,
     Math.min(
       window.innerHeight / 2 - widgetHeight / 2,
-      window.innerHeight - widgetHeight - 10
-    )
+      window.innerHeight - widgetHeight - 10,
+    ),
   );
 
   widget.style.left = `${x}px`;
@@ -1026,36 +1106,74 @@ function positionWidgetFromPanel(panel: HTMLElement) {
 }
 
 function getCodeFromEditor() {
-  // const inputArea = document.querySelector(
-  //   ".lines-content.monaco-editor-background"
-  //   //".monaco-editor textarea.inputarea"
-  // ) as HTMLTextAreaElement | null;
-
   const codeText = (
     document.querySelector(
-      ".monaco-scrollable-element.editor-scrollable.vs.mac"
+      ".monaco-scrollable-element.editor-scrollable.vs.mac",
     ) as HTMLElement | null
   )?.innerText;
   //.lines-content.monaco-editor-background
   return codeText ?? "";
-
-  //return inputArea?.value;
 }
 
 async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
-  console.log("this is the code written so far: ", writtenCode);
-  const response = await browser.runtime.sendMessage({
-    action: "check-code",
-    payload: {
-      sessionId: currentTutorSession?.sessionId ?? "",
-      topics: currentTutorSession?.topics,
-      code: writtenCode, // <-- raw string
+  //console.log("this is the code written so far: ", writtenCode);
+  try {
+    const response = await browser.runtime.sendMessage({
       action: "check-code",
-    },
-  });
-  console.log("this is the respnse: ", response);
-  if (!response) return "Failure";
-  return response;
+      payload: {
+        sessionId: currentTutorSession?.sessionId ?? "",
+        topics: currentTutorSession?.topics,
+        code: writtenCode, // <-- raw string
+        action: "check-code",
+      },
+    });
+
+    const topics = response?.topics;
+    if (topics && typeof topics === "object") {
+      for (const [topic, raw] of Object.entries(
+        topics as Record<string, unknown>,
+      )) {
+        if (!raw || typeof raw !== "object") continue;
+
+        const thoughts = (raw as { thoughts_to_remember?: unknown })
+          .thoughts_to_remember;
+        const pitfalls = (raw as { pitfalls?: unknown }).pitfalls;
+
+        const thoughtValues = Array.isArray(thoughts)
+          ? thoughts
+          : typeof thoughts === "string" && thoughts.trim()
+            ? [thoughts.trim()]
+            : [];
+
+        const pitfallValues = Array.isArray(pitfalls)
+          ? pitfalls
+          : typeof pitfalls === "string" && pitfalls.trim()
+            ? [pitfalls.trim()]
+            : [];
+
+        if (!currentTutorSession) continue;
+        currentTutorSession.topics[topic] ??= {
+          thoughts_to_remember: [],
+          pitfalls: [],
+        };
+
+        if (thoughtValues.length > 0) {
+          currentTutorSession.topics[topic].thoughts_to_remember.push(
+            ...thoughtValues,
+          );
+        }
+        if (pitfallValues.length > 0) {
+          currentTutorSession.topics[topic].pitfalls.push(...pitfallValues);
+        }
+      }
+    }
+    console.log("this is the object now: ", currentTutorSession?.topics);
+    return response?.resp;
+  } catch (error) {
+    console.error("checkMode failed", error);
+    return "Failure";
+  }
+  //console.log("this is the respnse: ", response);
 }
 
 function setupTutorPanelEvents(panel: HTMLElement) {
@@ -1077,7 +1195,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   });
 
   const prompt = panel.querySelector<HTMLTextAreaElement>(
-    ".tutor-panel-prompt"
+    ".tutor-panel-prompt",
   );
   const sendQuestion =
     panel.querySelector<HTMLButtonElement>(".tutor-panel-send");
@@ -1097,9 +1215,18 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   closeButton?.addEventListener("click", async () => closeTutorPanel());
   // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
   checkModeClicked?.addEventListener("click", async () => {
-    const writtenCode = getCodeFromEditor();
-    //console.log("this is the written code: ", writtenCode);
-    const resp = await checkMode(panel, writtenCode);
+    let codeSoFar = "";
+    try {
+      const res = await browser.runtime.sendMessage({
+        type: "GET_MONACO_CODE",
+      });
+      if (res?.ok && typeof res.code === "string") {
+        codeSoFar = res.code;
+      }
+    } catch {
+      // Fallback to DOM-extracted code when background messaging fails.
+    }
+    const resp = await checkMode(panel, codeSoFar);
     console.log("this is the response: ", resp);
   });
 

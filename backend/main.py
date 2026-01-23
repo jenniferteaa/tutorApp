@@ -23,7 +23,7 @@ class GuideModeRequest(BaseModel):
 
 @app.post("/api/llm")
 def llm(req: CodeRequest):
-    print("this is the request in teh backend: ", req)
+    #print("this is the request in teh backend: ", req)
     match req.action:
         case "check-code":
             response = requestingCodeCheck(req.topics, req.code)
