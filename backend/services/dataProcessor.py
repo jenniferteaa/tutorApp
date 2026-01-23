@@ -10,8 +10,7 @@ def _normalize_topic_note(note: str) -> str:
     return " ".join(note.lower().split())
 
 
-def _iter_topic_notes(
-    rolling_state: RollingStateGuideMode, topic: str, topics: dict[str, TopicNotes]
+def _iter_topic_notes(topic: str, topics: dict[str, TopicNotes]
 ) -> Iterable[str]:
     notes = topics.get(topic)
     if not notes:
@@ -38,7 +37,6 @@ def _iter_topic_notes(
 
 
 def is_similar_topic_note(
-    rolling_state: RollingStateGuideMode,
     topic: str,
     topics: dict[str, TopicNotes],
     note: str,
@@ -53,7 +51,7 @@ def is_similar_topic_note(
     if not candidate:
         return False
 
-    for existing in _iter_topic_notes(rolling_state, topic, topics):
+    for existing in _iter_topic_notes(topic, topics):
         existing_norm = _normalize_topic_note(existing)
         if not existing_norm:
             continue
@@ -62,7 +60,6 @@ def is_similar_topic_note(
     return False
 
 def processingSimilarInputTopic(
-    rolling_state: RollingStateGuideMode,
     topicNotes: dict[str, dict[str, list[str] | str]] | dict[str, str],
     topics: dict[str, TopicNotes],
     *,
@@ -110,7 +107,6 @@ def processingSimilarInputTopic(
         for key in ("thoughts_to_remember", "pitfalls"):
             for note in notes[key]:
                 if not is_similar_topic_note(
-                    rolling_state,
                     topic,
                     topics,
                     note,

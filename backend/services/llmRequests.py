@@ -27,30 +27,68 @@ def log_token_usage(label: str, usage: dict) -> None:
         f"completion: {usage['completion_tokens']}, total: {usage['total_tokens']}"
     )
 def requestingCodeCheck(topics: dict[str, TopicNotes], code: str):
-    prompt = f"""
 
+    system_prompt = """
     Given the following code, perform checks.
     If faulty, explain why, which line causes it, and how to fix it.
 
+    Go through the Topics JSON part, and for the faulty lines or logic, add the faulty 
+    line under pitfalls of the respective topic you seem fit, and add the correction under thoughts_to_remember
+
+    Return the response in the following format:
+
+        Schema:
+        "resp": string,
+        "topics": {                             // ONLY new items
+            "<topic>": {
+                "thoughts_to_remember": string[],
+                "pitfalls": string[]
+            }
+        }
+
+    """
+    user_prompt = f"""
+    
     Code:
     {code}
+
+    Topics (JSON — keys are fixed, values contain existing notes):
+    {json.dumps(_serialize_topics(topics), indent=2)}
+
     """
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            model="gpt-4.1-mini-2025-04-14",
+            #model="gpt-3.5-turbo",
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
         )
-        #log_token_usage("check-code", get_token_usage(response))
 
-        content = response.choices[0].message.content
-        #print("this is the response: ", response)
-        return content.strip() if content else ""
+        raw = response.choices[0].message.content or ""
+        data = parse_json_response(raw)
+
+
+        topicNotes = data.get("topics") or {}
+        isSimilar = False
+        if topicNotes:
+            deduped = processingSimilarInputTopic(
+                topicNotes, topics
+            )
+            if deduped is True:
+                isSimilar = True
+                data["topics"] = {}
+                data["topictoprint"] = topicNotes
+            else:
+                data["topics"] = deduped
+        data["isSimilar"] = isSimilar
+
+        return data
 
     except Exception as e:
         print("This is the error Error:", e)
         time.sleep(60)
         return str(e)
+
 
 def answerAskanything(code: str):
     prompt = f"""
@@ -185,7 +223,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         isSimilar = False
         if topicNotes:
             deduped = processingSimilarInputTopic(
-                rollingStateGuideMode, topicNotes, topics
+                topicNotes, topics
             )
             if deduped is True:
                 isSimilar = True
