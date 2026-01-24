@@ -230,17 +230,60 @@ function createFloatingWidget() {
   transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
   box-shadow: 0 1px 0 rgba(0,0,0,0.06);
 }
-.btn-guide-mode:hover,
-.btn-help-mode:hover,
-.btn-timer:hover{
+.btn-guide-mode:not(:disabled):hover,
+.btn-timer:not(:disabled):hover{
   transform: translateY(-1px);
   filter: brightness(0.98);
+  
 }
 .btn-guide-mode:active,
 .btn-help-mode:active,
 .btn-timer:active{
   transform: translateY(0px);
 }
+.btn-help-mode:not(:disabled):hover
+{
+  filter: brightness(0.95) saturate(1.1);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  border-color: rgba(0,0,0,0.25);
+  background: rgba(195, 237, 152, 0.95);
+}
+
+@keyframes hoverPulse {
+  0%   { transform: translateY(0); filter: brightness(0.95) saturate(1.1); }
+  50%  { transform: translateY(-2px); filter: brightness(1.02) saturate(1.15); }
+  100% { transform: translateY(0); filter: brightness(0.95) saturate(1.1); }
+}
+
+
+.btn-help-mode.is-loading{
+  filter: brightness(0.95) saturate(1.1);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  border-color: rgba(0,0,0,0.25);
+  background: rgba(195, 237, 152, 0.95);
+  animation: hoverPulse 1.2s ease-in-out infinite;
+  }
+
+.tutor-panel.checkmode-active .btn-guide-mode,
+.tutor-panel.checkmode-active .btn-timer,
+.tutor-panel.checkmode-active .tutor-panel-send{
+  position: relative;
+  pointer-events: none;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.tutor-panel.checkmode-active .btn-guide-mode::after,
+.tutor-panel.checkmode-active .btn-timer::after,
+.tutor-panel.checkmode-active .tutor-panel-send::after{
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(0,0,0,0.7);
+}
+
 
 /* Content area */
 .tutor-panel-content{
@@ -1349,22 +1392,27 @@ function appendPanelMessage(
   return message;
 }
 
-function showCheckModeLoading(panel: HTMLElement) {
-  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  if (!contentArea || contentArea.querySelector(".tutor-panel-loading")) {
-    return;
+function setPanelControlsDisabled(panel: HTMLElement, disabled: boolean) {
+  const selectors = [
+    ".btn-guide-mode",
+    ".btn-help-mode",
+    ".btn-timer",
+    ".tutor-panel-send",
+    ".tutor-panel-prompt",
+  ];
+  for (const selector of selectors) {
+    const element = panel.querySelector<HTMLElement>(selector);
+    if (!element) continue;
+    if (element instanceof HTMLButtonElement) {
+      element.disabled = disabled;
+      continue;
+    }
+    if (element instanceof HTMLTextAreaElement) {
+      element.disabled = disabled;
+      continue;
+    }
+    element.setAttribute("aria-disabled", disabled ? "true" : "false");
   }
-  const loading = document.createElement("div");
-  loading.className = "tutor-panel-loading";
-  loading.textContent = "Checking...";
-  contentArea.append(loading);
-  contentArea.scrollTop = loading.offsetTop;
-}
-
-function hideCheckModeLoading(panel: HTMLElement) {
-  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  const loading = contentArea?.querySelector(".tutor-panel-loading");
-  loading?.remove();
 }
 
 function typeMessage(
@@ -1505,11 +1553,15 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   closeButton?.addEventListener("click", async () => closeTutorPanel());
   // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
   checkModeClicked?.addEventListener("click", async () => {
+    const checkModeButton = panel.querySelector<HTMLElement>(".btn-help-mode");
     let codeSoFar = "";
     if (currentTutorSession) {
       currentTutorSession.checkModeEnabled = true;
+      checkModeButton?.classList.add("is-loading");
     }
-    showCheckModeLoading(panel);
+    setPanelControlsDisabled(panel, true);
+    panel.classList.add("checkmode-active");
+
     try {
       const res = await browser.runtime.sendMessage({
         type: "GET_MONACO_CODE",
@@ -1524,8 +1576,10 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     } finally {
       if (currentTutorSession) {
         currentTutorSession.checkModeEnabled = false;
+        checkModeButton?.classList.remove("is-loading");
       }
-      hideCheckModeLoading(panel);
+      setPanelControlsDisabled(panel, false);
+      panel.classList.remove("checkmode-active");
     }
   });
 
@@ -1534,10 +1588,6 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       currentTutorSession.prompt = prompt.value;
     }
   });
-
-  // if (content_area && currentTutorSession?.content) {
-  //   content_area.textContent = currentTutorSession.content;
-  // }
 
   let isPanelDragging = false;
   let dragOffsetX = 0;
