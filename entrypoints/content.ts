@@ -246,10 +246,84 @@ function createFloatingWidget() {
 .tutor-panel-content{
   flex: 1;                 /* takes remaining space */
   padding: 12px;
-  overflow: auto;
+  overflow-x: hidden;
 
   background: rgba(255, 255, 255, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
+
+.tutor-panel-message{
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px;
+  color: rgba(0,0,0,0.86);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.tutor-panel-message--assistant{
+  background: transparent;
+  border-radius: 1px;
+  border: none;
+  padding: 10px 20px;
+  align-self: flex-start;
+  border-top: 2px solid rgba(0,0,0,0.45);
+  margin-top: 14px;
+  padding-top: 18px 20px;
+
+}
+
+.tutor-panel-loading{
+  font-size: 13px;
+  color: rgba(0,0,0,0.6);
+  padding: 6px 12px;
+  align-self: flex-start;
+}
+
+
+.tutor-panel-message--user{
+  align-self: flex-end;
+  max-width: 75%;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.tutor-panel-message p{
+  margin: 0 0 8px 0;
+}
+.tutor-panel-message p:last-child{
+  margin-bottom: 0;
+}
+.tutor-panel-message ul,
+.tutor-panel-message ol{
+  margin: 0 0 8px 18px;
+  padding: 0;
+}
+.tutor-panel-message li{
+  margin: 2px 0;
+}
+.tutor-panel-message code{
+  font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", "Menlo", monospace;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.tutor-panel-message pre{
+  background: rgba(15, 23, 42, 0.06);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.tutor-panel-message pre code{
+  background: transparent;
+  padding: 0;
+}
+
+
 
 /* Input bar pinned at bottom */
 .tutor-panel-inputbar{
@@ -574,7 +648,7 @@ function openTutorPanel() {
     sessionId,
     problem: title,
     topics: rollingTopics,
-    content: "",
+    content: [],
     prompt: "",
     position: null,
     size: null,
@@ -627,7 +701,7 @@ type RollingStateGuideMode = {
 type TutorSession = {
   element: HTMLElement;
   sessionId: string;
-  content: string;
+  content: string[];
   problem: string;
   topics: Record<
     string,
@@ -898,9 +972,7 @@ async function drainGuideQueue() {
       if (!resp) {
         console.log("failure for guide mode");
       } else {
-        // Append only list-like fields from the backend reply
         // Put this into a separate function
-        //console.log("This is the response from the LLM: ", resp);
         const reply = resp.success ? resp.reply : null;
         if (reply?.state_update?.lastEdit?.trim() && currentTutorSession) {
           currentTutorSession.rollingStateGuideMode.lastEdit =
@@ -908,10 +980,26 @@ async function drainGuideQueue() {
         }
         const nudge = reply?.nudge;
 
-        if (typeof nudge === "string" && nudge.trim().length > 0) {
-          //console.log("this is the nudge: ", nudge);
-          currentTutorSession?.rollingStateGuideMode.nudges.push(nudge.trim());
+        // if (typeof nudge === "string" && nudge.trim().length > 0) {
+        //   //console.log("this is the nudge: ", nudge);
+        //   currentTutorSession?.rollingStateGuideMode.nudges.push(nudge.trim());
+        // }
+        //const response_llm = response?.resp;
+        if (currentTutorSession && typeof nudge === "string") {
+          currentTutorSession.content.push(`${nudge}\n`);
         }
+
+        // Get back to this
+        // const content_area = panel.querySelector<HTMLElement>(
+        //   ".tutor-panel-content",
+        // );
+        // if (content_area && typeof nudge === "string") {
+        //   const message = document.createElement("div");
+        //   message.className = "tutor-panel-message";
+        //   message.innerHTML = renderMarkdown(nudge);
+        //   content_area.append(message);
+        //   content_area.scrollTop = content_area.scrollHeight;
+        // }
 
         const topics = reply?.topics;
         if (topics && typeof topics === "object") {
@@ -972,7 +1060,7 @@ function getCodeElementFullCode(): HTMLTextAreaElement | null {
   //.lines-content.monaco-editor-background
 }
 
-function onGuideInput(event: Event) {
+function onGuideInput() {
   // remove the event from here
   if (!currentTutorSession?.guideModeEnabled) return;
   const inputArea = getEditorInputArea();
@@ -1115,6 +1203,192 @@ function getCodeFromEditor() {
   return codeText ?? "";
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatInlineMarkdown(text: string) {
+  const parts = text.split("`");
+  return parts
+    .map((part, index) =>
+      index % 2 === 1 ? `<code>${escapeHtml(part)}</code>` : escapeHtml(part),
+    )
+    .join("");
+}
+
+function renderTextMarkdown(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let paragraph: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    html += `<p>${formatInlineMarkdown(paragraph.join(" "))}</p>`;
+    paragraph = [];
+  };
+
+  const closeList = () => {
+    if (!listType) return;
+    html += `</${listType}>`;
+    listType = null;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      closeList();
+      const level = headingMatch[1].length;
+      html += `<h${level}>${formatInlineMarkdown(headingMatch[2])}</h${level}>`;
+      continue;
+    }
+
+    const orderedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+    if (orderedMatch) {
+      flushParagraph();
+      if (listType && listType !== "ol") {
+        closeList();
+      }
+      if (!listType) {
+        listType = "ol";
+        html += "<ol>";
+      }
+      html += `<li>${formatInlineMarkdown(orderedMatch[2])}</li>`;
+      continue;
+    }
+
+    const unorderedMatch = trimmed.match(/^[-*]\s+(.*)$/);
+    if (unorderedMatch) {
+      flushParagraph();
+      if (listType && listType !== "ul") {
+        closeList();
+      }
+      if (!listType) {
+        listType = "ul";
+        html += "<ul>";
+      }
+      html += `<li>${formatInlineMarkdown(unorderedMatch[1])}</li>`;
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+
+  flushParagraph();
+  closeList();
+  return html;
+}
+
+function renderMarkdown(message: string) {
+  const parts: { type: "text" | "code"; content: string; lang?: string }[] = [];
+  const fence = /```(\w+)?\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(message)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({
+        type: "text",
+        content: message.slice(lastIndex, match.index),
+      });
+    }
+    parts.push({
+      type: "code",
+      content: match[2] ?? "",
+      lang: match[1] ?? "",
+    });
+    lastIndex = fence.lastIndex;
+  }
+  if (lastIndex < message.length) {
+    parts.push({ type: "text", content: message.slice(lastIndex) });
+  }
+
+  return parts
+    .map((part) => {
+      if (part.type === "code") {
+        const lang = part.lang ? ` data-lang="${escapeHtml(part.lang)}"` : "";
+        return `<pre><code${lang}>${escapeHtml(
+          part.content.trimEnd(),
+        )}</code></pre>`;
+      }
+      return renderTextMarkdown(part.content);
+    })
+    .join("");
+}
+
+function appendPanelMessage(
+  panel: HTMLElement,
+  messageText: string,
+  role: "assistant" | "user",
+) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return null;
+  const message = document.createElement("div");
+  message.className = `tutor-panel-message tutor-panel-message--${role}`;
+  if (role === "assistant") {
+    // const divider = document.createElement("div");
+    // divider.className = "tutor-panel-divider";
+    // contentArea.append(divider);
+    message.innerHTML = renderMarkdown(messageText);
+  } else {
+    message.textContent = messageText;
+  }
+  contentArea.append(message);
+  contentArea.scrollTop = message.offsetTop; // come back to this
+  return message;
+}
+
+function showCheckModeLoading(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea || contentArea.querySelector(".tutor-panel-loading")) {
+    return;
+  }
+  const loading = document.createElement("div");
+  loading.className = "tutor-panel-loading";
+  loading.textContent = "Checking...";
+  contentArea.append(loading);
+  contentArea.scrollTop = loading.offsetTop;
+}
+
+function hideCheckModeLoading(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  const loading = contentArea?.querySelector(".tutor-panel-loading");
+  loading?.remove();
+}
+
+function typeMessage(
+  message: HTMLElement,
+  contentArea: HTMLElement,
+  text: string,
+) {
+  return new Promise<void>((resolve) => {
+    let index = 0;
+    const step = 2;
+    const tick = () => {
+      index = Math.min(text.length, index + step);
+      message.textContent = text.slice(0, index);
+      contentArea.scrollTop = message.offsetTop;
+      if (index < text.length) {
+        window.setTimeout(tick, 12);
+      } else {
+        resolve();
+      }
+    };
+    tick();
+  });
+}
+
 async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
   //console.log("this is the code written so far: ", writtenCode);
   try {
@@ -1127,6 +1401,21 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
         action: "check-code",
       },
     });
+    const response_llm = response?.resp;
+    if (currentTutorSession && typeof response_llm === "string") {
+      currentTutorSession.content.push(`${response_llm}\n`);
+    }
+
+    const content_area = panel.querySelector<HTMLElement>(
+      ".tutor-panel-content",
+    );
+    if (content_area && typeof response_llm === "string") {
+      const message = appendPanelMessage(panel, "", "assistant");
+      if (!message) return;
+      await typeMessage(message, content_area, response_llm);
+      message.innerHTML = renderMarkdown(response_llm);
+      content_area.scrollTop = message.offsetTop;
+    }
 
     const topics = response?.topics;
     if (topics && typeof topics === "object") {
@@ -1204,30 +1493,40 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     if (!currentTutorSession?.prompt) return highlightAskArea();
     else {
       const toAsk = currentTutorSession.prompt;
+      appendPanelMessage(panel, toAsk, "user");
       const resp = await askAnything(panel, toAsk);
       //console.log("this is the response from askanything: ", resp);
       currentTutorSession.prompt = "";
     }
   });
 
-  const content = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  // const content_area = panel.querySelector<HTMLElement>(".tutor-panel-content");
 
   closeButton?.addEventListener("click", async () => closeTutorPanel());
   // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
   checkModeClicked?.addEventListener("click", async () => {
     let codeSoFar = "";
+    if (currentTutorSession) {
+      currentTutorSession.checkModeEnabled = true;
+    }
+    showCheckModeLoading(panel);
     try {
       const res = await browser.runtime.sendMessage({
         type: "GET_MONACO_CODE",
-      });
-      if (res?.ok && typeof res.code === "string") {
+      }); // check this later
+      if (res?.ok && typeof res.code === "string" && currentTutorSession) {
         codeSoFar = res.code;
       }
+      const resp = await checkMode(panel, codeSoFar);
+      console.log("this is the response: ", resp);
     } catch {
       // Fallback to DOM-extracted code when background messaging fails.
+    } finally {
+      if (currentTutorSession) {
+        currentTutorSession.checkModeEnabled = false;
+      }
+      hideCheckModeLoading(panel);
     }
-    const resp = await checkMode(panel, codeSoFar);
-    console.log("this is the response: ", resp);
   });
 
   prompt?.addEventListener("input", () => {
@@ -1236,9 +1535,9 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     }
   });
 
-  if (content && currentTutorSession?.content) {
-    content.innerHTML = currentTutorSession.content;
-  }
+  // if (content_area && currentTutorSession?.content) {
+  //   content_area.textContent = currentTutorSession.content;
+  // }
 
   let isPanelDragging = false;
   let dragOffsetX = 0;
