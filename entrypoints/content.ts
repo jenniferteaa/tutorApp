@@ -348,11 +348,10 @@ function createFloatingWidget() {
 
 .tutor-panel-message--assistant{
   background: transparent;
-  border-radius: 1px;
+  border-radius: 7px;
   border: none;
-  padding: 10px 20px;
+  padding: 10px 8px;
   align-self: flex-start;
-  border-top: 2px solid rgba(0,0,0,0.45);
   margin-top: 14px;
   padding-top: 18px 20px;
 
@@ -376,13 +375,13 @@ function createFloatingWidget() {
 .guide-wrapper.guide-start{
   border-top: 2px solid rgba(0,0,0,0.45);
   margin-top: 14px;
-  padding-top: 14px; /* ✅ gap between border and bubble */
+  padding-top: 14px;
 }
 
 .guide-wrapper.guide-end{
   border-bottom: 2px solid rgba(0,0,0,0.45);
   margin-bottom: 14px;
-  padding-bottom: 14px; /* ✅ gap between bubble and border */
+  padding-bottom: 14px;
 }
 
 .tutor-panel-message--checkAssistant{
@@ -425,6 +424,7 @@ function createFloatingWidget() {
 .tutor-panel-message--user{
   align-self: flex-end;
   max-width: 75%;
+  border-radius: 9px;
   background: rgba(255, 255, 255, 0.85);
 }
 
@@ -801,6 +801,7 @@ function openTutorPanel() {
     sessionRollingHistory: {
       qaHistory: [],
       summary: "",
+      toSummarize: [],
       // should there be a to be summarized?
     },
   };
@@ -823,15 +824,45 @@ function openTutorPanel() {
 type SessionRollingHistoryLLM = {
   qaHistory: string[];
   summary: string;
+  toSummarize: string[];
 };
+
+let summarizeInFlight = false;
+
+async function requestHistorySummary(history: SessionRollingHistoryLLM) {
+  if (summarizeInFlight || history.toSummarize.length === 0) return;
+  //console.log("This is the toSummarize before clearing: ", history.toSummarize);
+  const summarizeBatch = history.toSummarize.splice(0);
+  summarizeInFlight = true;
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: "summarize-history",
+      payload: {
+        sessionId: currentTutorSession?.sessionId ?? "",
+        summarize: summarizeBatch,
+        summary: history.summary,
+      },
+    });
+    if (typeof response === "string") {
+      history.summary = response;
+      //console.log("This is the summary: ", history.summary);
+      //console.log("This is the toSummarize: ", history.toSummarize);
+    }
+  } finally {
+    summarizeInFlight = false;
+  }
+}
+
+function maybeQueueSummary(history: SessionRollingHistoryLLM) {
+  if (history.qaHistory.length <= 40) return;
+  const moved = history.qaHistory.splice(0, 20);
+  history.toSummarize.push(...moved);
+  void requestHistorySummary(history);
+}
 
 type RollingStateGuideMode = {
   problem: string;
-  nudges: string[]; // keep last N
-  // topics: Record<
-  //   string,
-  //   { thoughts_to_remember: string[]; pitfalls: string[] }
-  // >;
+  nudges: string[];
   lastEdit: string;
 };
 
@@ -1265,16 +1296,21 @@ function detachGuideListeners() {
 function highlightAskArea() {}
 
 async function askAnything(panel: HTMLElement, query: string) {
-  console.log("this is the query asked: ", query);
+  //console.log("this is the query asked: ", query);
   const response = await browser.runtime.sendMessage({
     action: "ask-anything",
     payload: {
       sessionId: currentTutorSession?.sessionId ?? "",
-      query: query,
       action: "ask-anything",
+      rollingHistory: currentTutorSession?.sessionRollingHistory.qaHistory,
+      summary: currentTutorSession?.sessionRollingHistory.summary ?? "",
+      query: query,
     },
   });
-  console.log("this is the response: ", response);
+  if (response) {
+    appendToContentPanel(panel, "", "assistant", response);
+  }
+  //console.log("this is the response: ", response);
   if (!response) return "Failure";
   return response;
 }
@@ -1465,9 +1501,13 @@ function appendPanelMessage(
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (!contentArea) return null;
   const message = document.createElement("div");
+
   if (role === "assistant") {
     message.className = `tutor-panel-message tutor-panel-message--${role}`;
     message.innerHTML = renderMarkdown(messageText);
+  } else if (role === "user") {
+    message.className = "tutor-panel-message tutor-panel-message--user";
+    message.textContent = messageText;
   } else if (role === "guideAssistant") {
     // 1) wrapper: owns borders + spacing
     const wrapper = document.createElement("div");
@@ -1485,8 +1525,7 @@ function appendPanelMessage(
     const wrapper = document.createElement("div");
     wrapper.className = "check-wrapper";
 
-    message.className =
-      "tutor-panel-message tutor-panel-message--checkAssistant";
+    message.className = `tutor-panel-message tutor-panel-message--${role}`;
     message.innerHTML = renderMarkdown(messageText);
 
     wrapper.appendChild(message);
@@ -1593,6 +1632,12 @@ async function appendToContentPanel(
       if (!message) return;
       await typeMessage(message, content_area, llm_response);
       message.innerHTML = renderMarkdown(llm_response);
+      currentTutorSession?.sessionRollingHistory.qaHistory.push(
+        `Assitant: ${llm_response}`,
+      );
+      if (currentTutorSession) {
+        maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      }
       content_area.scrollTop = message.offsetTop;
     } else if (role === "guideAssistant") {
       const wrapper = appendPanelMessage(panel, "", "guideAssistant");
@@ -1744,9 +1789,18 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     if (!currentTutorSession?.prompt) return highlightAskArea();
     else {
       const toAsk = currentTutorSession.prompt;
+      if (prompt) {
+        prompt.value = "";
+      }
+      if (currentTutorSession) {
+        currentTutorSession.prompt = "";
+      }
       appendPanelMessage(panel, toAsk, "user");
+      currentTutorSession.sessionRollingHistory.qaHistory.push(
+        `user: ${toAsk}`,
+      );
+      maybeQueueSummary(currentTutorSession.sessionRollingHistory);
       const resp = await askAnything(panel, toAsk);
-      //console.log("this is the response from askanything: ", resp);
       currentTutorSession.prompt = "";
     }
   });
