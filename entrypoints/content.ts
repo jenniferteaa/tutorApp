@@ -1,5 +1,5 @@
 export default defineContentScript({
-  matches: ["<all_urls>"],
+  matches: ["https://leetcode.com/problems/*"],
   main() {
     console.log(
       "🎯 StickyNoteAI v2.2 CSS FIXED + MENU POSITIONING - Loading...",
@@ -15,7 +15,7 @@ export default defineContentScript({
     }
   },
 });
-
+// <all_urls>
 let widget: HTMLElement | null = null;
 let panel: HTMLElement | null = null;
 let isDragging = false;
@@ -241,6 +241,7 @@ function createFloatingWidget() {
 .btn-timer:active{
   transform: translateY(0px);
 }
+
 .btn-help-mode:not(:disabled):hover
 {
   filter: brightness(0.95) saturate(1.1);
@@ -249,10 +250,27 @@ function createFloatingWidget() {
   background: rgba(195, 237, 152, 0.95);
 }
 
+.btn-guide-mode:not(:disabled):hover
+{
+  filter: brightness(0.95) saturate(1.1);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  border-color: rgba(0,0,0,0.25);
+  background: rgba(195, 237, 152, 0.95);
+}
+
+
 @keyframes hoverPulse {
   0%   { transform: translateY(0); filter: brightness(0.95) saturate(1.1); }
   50%  { transform: translateY(-2px); filter: brightness(1.02) saturate(1.15); }
   100% { transform: translateY(0); filter: brightness(0.95) saturate(1.1); }
+}
+
+.btn-guide-mode.is-loading{
+  filter: brightness(0.95) saturate(1.1);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  border-color: rgba(0,0,0,0.25);
+  background: rgba(195, 237, 152, 0.95);
+  animation: hoverPulse 1.2s ease-in-out infinite;
 }
 
 
@@ -275,6 +293,26 @@ function createFloatingWidget() {
 .tutor-panel.checkmode-active .btn-guide-mode::after,
 .tutor-panel.checkmode-active .btn-timer::after,
 .tutor-panel.checkmode-active .tutor-panel-send::after{
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(0,0,0,0.7);
+}
+
+.tutor-panel.guidemode-active .btn-help-mode,
+.tutor-panel.guidemode-active .btn-timer,
+.tutor-panel.guidemode-active .tutor-panel-send{
+  position: relative;
+  pointer-events: none;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.tutor-panel.guidemode-active .btn-help-mode::after,
+.tutor-panel.guidemode-active .btn-timer::after,
+.tutor-panel.guidemode-active .tutor-panel-send::after{
   position: absolute;
   inset: 0;
   display: grid;
@@ -1023,26 +1061,19 @@ async function drainGuideQueue() {
         }
         const nudge = reply?.nudge;
 
-        // if (typeof nudge === "string" && nudge.trim().length > 0) {
-        //   //console.log("this is the nudge: ", nudge);
-        //   currentTutorSession?.rollingStateGuideMode.nudges.push(nudge.trim());
-        // }
-        //const response_llm = response?.resp;
         if (currentTutorSession && typeof nudge === "string") {
           currentTutorSession.content.push(`${nudge}\n`);
+          if (currentTutorSession.element != null) {
+            await appendToContentPanel(
+              //but is it good to call a await inside of an already async function?
+              currentTutorSession.element,
+              "",
+              "assistant",
+              nudge,
+            );
+          }
+          //await appendToContentPanel(panel, "", "assistant", nudge);
         }
-
-        // Get back to this
-        // const content_area = panel.querySelector<HTMLElement>(
-        //   ".tutor-panel-content",
-        // );
-        // if (content_area && typeof nudge === "string") {
-        //   const message = document.createElement("div");
-        //   message.className = "tutor-panel-message";
-        //   message.innerHTML = renderMarkdown(nudge);
-        //   content_area.append(message);
-        //   content_area.scrollTop = content_area.scrollHeight;
-        // }
 
         const topics = reply?.topics;
         if (topics && typeof topics === "object") {
@@ -1083,8 +1114,6 @@ async function drainGuideQueue() {
             }
           }
         }
-
-        //console.log(currentTutorSession);
 
         flushInFlight = false;
       }
@@ -1392,6 +1421,28 @@ function appendPanelMessage(
   return message;
 }
 
+function setPanelControlsDisabledGuide(panel: HTMLElement, disabled: boolean) {
+  const selectors = [
+    ".btn-help-mode",
+    ".btn-timer",
+    ".tutor-panel-send",
+    ".tutor-panel-prompt",
+  ];
+  for (const selector of selectors) {
+    const element = panel.querySelector<HTMLElement>(selector);
+    if (!element) continue;
+    if (element instanceof HTMLButtonElement) {
+      element.disabled = disabled;
+      continue;
+    }
+    if (element instanceof HTMLTextAreaElement) {
+      element.disabled = disabled;
+      continue;
+    }
+    element.setAttribute("aria-disabled", disabled ? "true" : "false");
+  }
+}
+
 function setPanelControlsDisabled(panel: HTMLElement, disabled: boolean) {
   const selectors = [
     ".btn-guide-mode",
@@ -1437,6 +1488,22 @@ function typeMessage(
   });
 }
 
+async function appendToContentPanel(
+  panel: HTMLElement,
+  some: string,
+  role: string,
+  llm_response: string,
+) {
+  const content_area = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (content_area && typeof llm_response === "string") {
+    const message = appendPanelMessage(panel, "", "assistant");
+    if (!message) return;
+    await typeMessage(message, content_area, llm_response);
+    message.innerHTML = renderMarkdown(llm_response);
+    content_area.scrollTop = message.offsetTop;
+  }
+}
+
 async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
   //console.log("this is the code written so far: ", writtenCode);
   try {
@@ -1453,17 +1520,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
     if (currentTutorSession && typeof response_llm === "string") {
       currentTutorSession.content.push(`${response_llm}\n`);
     }
-
-    const content_area = panel.querySelector<HTMLElement>(
-      ".tutor-panel-content",
-    );
-    if (content_area && typeof response_llm === "string") {
-      const message = appendPanelMessage(panel, "", "assistant");
-      if (!message) return;
-      await typeMessage(message, content_area, response_llm);
-      message.innerHTML = renderMarkdown(response_llm);
-      content_area.scrollTop = message.offsetTop;
-    }
+    await appendToContentPanel(panel, "", "assistant", response_llm);
 
     const topics = response?.topics;
     if (topics && typeof topics === "object") {
@@ -1524,10 +1581,17 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     if (!currentTutorSession) return;
     currentTutorSession.guideModeEnabled =
       !currentTutorSession.guideModeEnabled;
+    const guideModeButton = panel.querySelector<HTMLElement>(".btn-guide-mode");
+    setPanelControlsDisabledGuide(panel, true);
+    panel.classList.add("guidemode-active");
     if (currentTutorSession.guideModeEnabled) {
+      guideModeButton?.classList.add("is-loading");
       attachGuideListeners();
     } else {
       detachGuideListeners();
+      setPanelControlsDisabledGuide(panel, false);
+      panel.classList.remove("guidemode-active");
+      guideModeButton?.classList.remove("is-loading");
     }
   });
 
