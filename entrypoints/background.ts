@@ -59,7 +59,7 @@ export default defineBackground(() => {
         target: { tabId: sender.tab.id },
         world: "MAIN",
         func: () => {
-          const monaco = window.monaco;
+          const monaco = (window as any).monaco; // added type casting
           if (!monaco?.editor) return { ok: false, error: "monaco not found" };
 
           const editors = monaco.editor.getEditors?.() || [];
@@ -164,8 +164,22 @@ async function handleMessage(message: VibeTutorMessage) {
       }
       const data = await handleAskAway({
         sessionId: message.payload.sessionId,
-        query: message.payload.query,
         action: message.payload.action,
+        rollingHistory: message.payload.rollingHistory,
+        summary: message.payload.summary,
+        query: message.payload.query,
+      });
+      if (!data) return "Failure";
+      return data;
+    }
+    case "summarize-history": {
+      if (!isSummarizePayload(message.payload)) {
+        return { success: false, error: "Invalid summarize payload" };
+      }
+      const data = await handleSummarize({
+        sessionID: message.payload.sessionId,
+        summarize: message.payload.summarize,
+        summary: message.payload.summary,
       });
       if (!data) return "Failure";
       return data;
@@ -312,16 +326,35 @@ async function handleCheckCode(payload: {
 
 async function handleAskAway(payload: {
   sessionId: string;
-  query: string;
   action: string;
+  rollingHistory: string[];
+  summary: string;
+  query: string;
 }) {
   console.debug("VibeTutor: ask-anything payload received");
   const data = await forwardCodeToBackend(
     payload.sessionId,
-    payload.query,
     payload.action ?? "ask-anything",
+    payload.rollingHistory,
+    payload.summary,
+    payload.query,
   );
   console.log("this is the data received: ", data.reply);
+  return data.reply;
+}
+
+async function handleSummarize(payload: {
+  sessionID: string;
+  summarize: string[];
+  summary: string;
+}) {
+  //console.debug("VibeTutor: summarize payload received");
+  const data = await forwardSummaryToBackend(
+    payload.sessionID,
+    payload.summarize,
+    payload.summary,
+  );
+  //console.log("this is the summary received: ", data.reply);
   return data.reply;
 }
 
@@ -399,20 +432,16 @@ async function forwardCodeForCheckMode(
 
 async function forwardCodeToBackend(
   sessionId: string,
-  code: string,
   action: string,
-  //extra?: Record<string, unknown>
-  //extra?: Record<string, unknown> | string
+  rollingHistory: string[],
+  summary: string,
+  query: string,
 ) {
-  console.log("sending code to backend:", { action });
-  console.log("this is the code: ", code);
-  //console.log("this is the extra: ", extra);
-
   try {
-    const response = await fetch("http://127.0.0.1:8000/api/llm", {
+    const response = await fetch("http://127.0.0.1:8000/api/llm/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, code, action }),
+      body: JSON.stringify({ sessionId, action, rollingHistory, summary, query }),
     });
 
     const text = await response.text(); // read once
@@ -438,6 +467,39 @@ async function forwardCodeToBackend(
   } catch (error) {
     console.error("VibeTutor: backend request failed", error);
     return { success: false, error: "Backend request failed" };
+  }
+}
+
+async function forwardSummaryToBackend(
+  sessionID: string,
+  summarize: string[],
+  summary: string,
+) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/llm/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionID, summarize, summary }),
+    });
+    const text = await response.text();
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Backend error (${response.status}): ${
+          data?.detail ? JSON.stringify(data.detail) : text
+        }`,
+      };
+    }
+    return data ?? { success: true };
+  } catch (error) {
+    console.error("VibeTutor: summary request failed", error);
+    return { success: false, error: "Summary request failed" };
   }
 }
 
@@ -506,64 +568,6 @@ function isGuideModePayload(payload: unknown): payload is {
   );
 }
 
-// function isGuideModePayload(payload: unknown): payload is {
-//   // is it good to leave this as unknown?
-//   sessionId: string;
-//   action: string;
-//   problem: string;
-//   topics: Record<
-//     string,
-//     { thoughts_to_remember: string[]; pitfalls: string[] }
-//   >;
-//   code: string;
-//   focusLine: string;
-//   rollingStateGuideMode: RollingStateGuideMode;
-// } {
-//   const rollingState = (payload as { rollingStateGuideMode?: unknown })
-//     .rollingStateGuideMode as Partial<RollingStateGuideMode> | undefined;
-//   return (
-//     typeof payload === "object" &&
-//     payload !== null &&
-//     typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-//     typeof (payload as { action?: unknown }).action === "string" &&
-//     typeof (payload as { problem?: unknown }).problem === "string" &&
-//     typeof (payload as { topics?: unknown }).topics === "object" &&
-//     (payload as { topics?: unknown }).topics !== null &&
-//     Object.values(
-//       (payload as { topics?: Record<string, unknown> }).topics ?? {}
-//     ).every(
-//       (entries) =>
-//         Array.isArray(entries) &&
-//         entries.every((entry) => typeof entry === "string")
-//     ) &&
-//     typeof (payload as { code?: unknown }).code === "string" &&
-//     typeof (payload as { focusLine?: unknown }).focusLine === "string" &&
-//     typeof rollingState === "object" &&
-//     rollingState !== null &&
-//     typeof rollingState.problem === "string" &&
-//     typeof topics === "object" &&
-//     topics !== null &&
-//     Object.values(topics).every(
-//       (entries) =>
-//         Array.isArray(entries) &&
-//         entries.every((entry) => typeof entry === "string")
-//       // ) &&
-//       // typeof rollingState.approach === "string" &&
-//       // Array.isArray(rollingState.decisions) &&
-//       // rollingState.decisions.every((entry) => typeof entry === "string") &&
-//       // Array.isArray(rollingState.pitfallsFlagged) &&
-//       // rollingState.pitfallsFlagged.every((entry) => typeof entry === "string") &&
-//       // typeof rollingState.lastEdit === "string" &&
-//       // Array.isArray(rollingState.nudges) &&
-//       // rollingState.nudges.every((entry) => typeof entry === "string") &&
-//       // Array.isArray(rollingState.thoughts_to_remember) &&
-//       // rollingState.thoughts_to_remember.every(
-//       //   (entry) => typeof entry === "string"
-//       //
-//     )
-//   );
-// }
-
 function isCheckCodePayload(payload: unknown): payload is {
   sessionId: string;
   topics: Record<
@@ -604,16 +608,52 @@ function isTimerPayload(
   );
 }
 
-function isChatPayload(
-  payload: unknown,
-): payload is { sessionId: string; query: string; action: string } {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-    typeof (payload as { query?: unknown }).query === "string" &&
-    typeof (payload as { action?: unknown }).action === "string"
-  );
+function isChatPayload(payload: unknown): payload is {
+  sessionId: string;
+  action: string;
+  rollingHistory: string[];
+  summary: string;
+  query: string;
+} {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+  const maybe = payload as {
+    sessionId: string;
+    action: string;
+    rollingHistory: string[];
+    summary?: unknown;
+    query: string;
+  };
+  if (typeof maybe.sessionId !== "string") return false;
+  if (typeof maybe.query !== "string") return false;
+  if (typeof maybe.action !== "string") return false;
+  if (!Array.isArray(maybe.rollingHistory)) return false;
+  if (!maybe.rollingHistory.every((entry) => typeof entry === "string")) {
+    return false;
+  }
+  return typeof maybe.summary === "string";
+}
+
+function isSummarizePayload(payload: unknown): payload is {
+  sessionId: string;
+  summarize: string[];
+  summary: string;
+} {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+  const maybe = payload as {
+    sessionId?: unknown;
+    summarize?: unknown;
+    summary?: unknown;
+  };
+  if (typeof maybe.sessionId !== "string") return false;
+  if (!Array.isArray(maybe.summarize)) return false;
+  if (!maybe.summarize.every((entry) => typeof entry === "string")) {
+    return false;
+  }
+  return typeof maybe.summary === "string";
 }
 
 // Handle tab updates to reinject content script if needed

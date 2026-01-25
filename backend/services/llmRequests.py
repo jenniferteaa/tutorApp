@@ -90,32 +90,6 @@ def requestingCodeCheck(topics: dict[str, TopicNotes], code: str):
         return str(e)
 
 
-def answerAskanything(code: str):
-    prompt = f"""
-    Given the following query, answer the query.
-
-    query:
-    {code}
-    """
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-        )
-        #log_token_usage("ask-anything", get_token_usage(response))
-
-        content = response.choices[0].message.content
-        #print("this is the response: ", response)
-        return content.strip() if content else ""
-
-    except Exception as e:
-        print("Error:", e)
-        time.sleep(60)
-        return str(e)
-    
-
-
 def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode):
     problem = problem
     topics = topics
@@ -252,6 +226,106 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         print("Error:", e)
         time.sleep(60)
         return {"nudge": "Error calling model.", "thoughts_to_remember": [], "state_update": {}}
+
+def answerAskanything(rollingHistory: list[str], summary: str, query: str):
+    system_prompt = """
+    You are an Assistant that helps the user with Leetcode problems and programming questions.
+
+    You are given:
+    - A summarized context of earlier conversation windows (if provided)
+    - The recent conversation history
+    - The user's current question
+
+    Use the summary only as background context.
+    Prioritize the recent conversation history and the current question.
+
+    If the user asks anything outside programming or Leetcode, reply exactly:
+    "This is not my scope."
+    """
+
+    history_text = "\n".join(rollingHistory)
+
+    user_prompt = f"""
+    {"Earlier summarized context:\n" + summary if summary.strip() else ""}
+
+    Recent conversation:
+    {history_text}
+
+    User question:
+    {query}
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini-2025-04-14",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+
+        content = response.choices[0].message.content
+        return content.strip() if content else ""
+
+    except Exception as e:
+        print("Error:", e)
+        time.sleep(60)
+        return str(e)
+
+
+def requestSummarization(summary: str, summarize: list[str]) -> str:
+    if not summarize:
+        return ""
+
+    system_prompt = """
+    You summarize conversations.
+
+    You may be given:
+    - An existing summary from earlier conversation windows
+    - A new segment of conversation history
+
+    Your task is to produce a single, updated summary that:
+    - Preserves important context from the existing summary (if provided)
+    - Incorporates new relevant information from the recent conversation
+    - Stays concise and precise (3–6 sentences total)
+
+    Include:
+    - what the user asked
+    - what the assistant responded
+    - any conclusions or outcomes
+
+    Do NOT quote the conversation.
+    Do NOT add new information.
+    Do NOT repeat redundant details.
+    """
+
+    user_prompt = f"""
+    {"Existing summary:\n" + summary if summary.strip() else ""}
+
+    Recent conversation history:
+    {chr(10).join(summarize)}
+
+    Write the updated recap:
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=180,
+        )
+
+        content = response.choices[0].message.content
+        return content.strip() if content else ""
+
+    except Exception as e:
+        print("Summarization error:", e)
+        return ""
+
 
 def _serialize_topics(topics: dict[str, TopicNotes]) -> dict[str, dict]:
     serialized: dict[str, dict] = {}
