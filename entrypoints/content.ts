@@ -358,6 +358,62 @@ function createFloatingWidget() {
 
 }
 
+.tutor-panel-message--guideAssistant{
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  padding: 10px 20px;
+  align-self: flex-start;
+}
+
+.guide-wrapper{
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Border + GAP live here */
+.guide-wrapper.guide-start{
+  border-top: 2px solid rgba(0,0,0,0.45);
+  margin-top: 14px;
+  padding-top: 14px; /* ✅ gap between border and bubble */
+}
+
+.guide-wrapper.guide-end{
+  border-bottom: 2px solid rgba(0,0,0,0.45);
+  margin-bottom: 14px;
+  padding-bottom: 14px; /* ✅ gap between bubble and border */
+}
+
+.tutor-panel-message--checkAssistant{
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  padding: 10px 20px;
+  align-self: flex-start;
+}
+.check-wrapper{
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+}
+
+.check-wrapper.check-start{
+  border-top: 2px solid rgba(0,0,0,0.45);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.check-wrapper.check-end{
+  border-bottom: 2px solid rgba(0,0,0,0.45);
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+}
+.tutor-panel-message--checkAssistant{
+  background: rgba(0, 0, 0, 0.06); /* a bit warmer/neutral */
+}
+
+
 .tutor-panel-loading{
   font-size: 13px;
   color: rgba(0,0,0,0.6);
@@ -895,6 +951,8 @@ let guideDrainInFlight = false;
 let lastGuideSelectionLine: number | null = null;
 let lastGuideFlushLine: number | null = null;
 let lastGuideFlushAt = 0;
+let guideMessageCount = 0;
+let lastGuideMessageEl: HTMLElement | null = null;
 
 function guideMode() {}
 
@@ -1068,7 +1126,7 @@ async function drainGuideQueue() {
               //but is it good to call a await inside of an already async function?
               currentTutorSession.element,
               "",
-              "assistant",
+              "guideAssistant",
               nudge,
             );
           }
@@ -1402,17 +1460,39 @@ function renderMarkdown(message: string) {
 function appendPanelMessage(
   panel: HTMLElement,
   messageText: string,
-  role: "assistant" | "user",
+  role: "assistant" | "user" | "guideAssistant" | "checkAssistant",
 ) {
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (!contentArea) return null;
   const message = document.createElement("div");
-  message.className = `tutor-panel-message tutor-panel-message--${role}`;
   if (role === "assistant") {
-    // const divider = document.createElement("div");
-    // divider.className = "tutor-panel-divider";
-    // contentArea.append(divider);
+    message.className = `tutor-panel-message tutor-panel-message--${role}`;
     message.innerHTML = renderMarkdown(messageText);
+  } else if (role === "guideAssistant") {
+    // 1) wrapper: owns borders + spacing
+    const wrapper = document.createElement("div");
+    wrapper.className = "guide-wrapper";
+
+    // 2) bubble: owns background + padding
+    message.className = `tutor-panel-message tutor-panel-message--${role}`;
+    message.innerHTML = renderMarkdown(messageText);
+
+    wrapper.appendChild(message);
+    contentArea.appendChild(wrapper);
+
+    return wrapper;
+  } else if (role === "checkAssistant") {
+    const wrapper = document.createElement("div");
+    wrapper.className = "check-wrapper";
+
+    message.className =
+      "tutor-panel-message tutor-panel-message--checkAssistant";
+    message.innerHTML = renderMarkdown(messageText);
+
+    wrapper.appendChild(message);
+    contentArea.appendChild(wrapper);
+
+    return wrapper; // wrapper gets start/end
   } else {
     message.textContent = messageText;
   }
@@ -1474,13 +1554,25 @@ function typeMessage(
   return new Promise<void>((resolve) => {
     let index = 0;
     const step = 2;
+    const targetTop = message.offsetTop;
+    contentArea.scrollTop = targetTop;
+    let allowAutoScroll = true;
+    const onScroll = () => {
+      if (Math.abs(contentArea.scrollTop - targetTop) > 8) {
+        allowAutoScroll = false;
+      }
+    };
+    contentArea.addEventListener("scroll", onScroll, { passive: true });
     const tick = () => {
       index = Math.min(text.length, index + step);
       message.textContent = text.slice(0, index);
-      contentArea.scrollTop = message.offsetTop;
+      if (allowAutoScroll) {
+        contentArea.scrollTop = targetTop;
+      }
       if (index < text.length) {
         window.setTimeout(tick, 12);
       } else {
+        contentArea.removeEventListener("scroll", onScroll);
         resolve();
       }
     };
@@ -1496,11 +1588,49 @@ async function appendToContentPanel(
 ) {
   const content_area = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (content_area && typeof llm_response === "string") {
-    const message = appendPanelMessage(panel, "", "assistant");
-    if (!message) return;
-    await typeMessage(message, content_area, llm_response);
-    message.innerHTML = renderMarkdown(llm_response);
-    content_area.scrollTop = message.offsetTop;
+    if (role === "assistant") {
+      const message = appendPanelMessage(panel, "", "assistant");
+      if (!message) return;
+      await typeMessage(message, content_area, llm_response);
+      message.innerHTML = renderMarkdown(llm_response);
+      content_area.scrollTop = message.offsetTop;
+    } else if (role === "guideAssistant") {
+      const wrapper = appendPanelMessage(panel, "", "guideAssistant");
+      if (!wrapper) return;
+
+      // the bubble is the wrapper's first child
+      const bubble = wrapper.querySelector<HTMLElement>(
+        ".tutor-panel-message--guideAssistant",
+      );
+      if (!bubble) return;
+
+      if (guideMessageCount === 0) {
+        wrapper.classList.add("guide-start");
+      }
+      guideMessageCount += 1;
+      lastGuideMessageEl = wrapper;
+
+      await typeMessage(bubble, content_area, llm_response);
+      bubble.innerHTML = renderMarkdown(llm_response);
+      content_area.scrollTop = wrapper.offsetTop;
+    } else if (role === "checkAssistant") {
+      const wrapper = appendPanelMessage(panel, "", "checkAssistant");
+      if (!wrapper) return;
+
+      const bubble = wrapper.querySelector<HTMLElement>(
+        ".tutor-panel-message--checkAssistant",
+      );
+      if (!bubble) return;
+
+      // checkmode is one chunk → start + end immediately
+      wrapper.classList.add("check-start");
+
+      await typeMessage(bubble, content_area, llm_response);
+      bubble.innerHTML = renderMarkdown(llm_response);
+
+      wrapper.classList.add("check-end");
+      content_area.scrollTop = wrapper.offsetTop;
+    }
   }
 }
 
@@ -1520,7 +1650,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
     if (currentTutorSession && typeof response_llm === "string") {
       currentTutorSession.content.push(`${response_llm}\n`);
     }
-    await appendToContentPanel(panel, "", "assistant", response_llm);
+    await appendToContentPanel(panel, "", "checkAssistant", response_llm);
 
     const topics = response?.topics;
     if (topics && typeof topics === "object") {
@@ -1579,16 +1709,25 @@ function setupTutorPanelEvents(panel: HTMLElement) {
 
   guideMode?.addEventListener("click", () => {
     if (!currentTutorSession) return;
+
     currentTutorSession.guideModeEnabled =
       !currentTutorSession.guideModeEnabled;
+
     const guideModeButton = panel.querySelector<HTMLElement>(".btn-guide-mode");
     setPanelControlsDisabledGuide(panel, true);
     panel.classList.add("guidemode-active");
+
     if (currentTutorSession.guideModeEnabled) {
+      //content_area?.classList.add("guide_start");
       guideModeButton?.classList.add("is-loading");
+      guideMessageCount = 0;
+      lastGuideMessageEl = null;
       attachGuideListeners();
     } else {
       detachGuideListeners();
+      if (lastGuideMessageEl) {
+        lastGuideMessageEl.classList.add("guide-end");
+      }
       setPanelControlsDisabledGuide(panel, false);
       panel.classList.remove("guidemode-active");
       guideModeButton?.classList.remove("is-loading");
