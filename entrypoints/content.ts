@@ -1474,13 +1474,25 @@ function typeMessage(
   return new Promise<void>((resolve) => {
     let index = 0;
     const step = 2;
+    const targetTop = message.offsetTop;
+    contentArea.scrollTop = targetTop;
+    let allowAutoScroll = true;
+    const onScroll = () => {
+      if (Math.abs(contentArea.scrollTop - targetTop) > 8) {
+        allowAutoScroll = false;
+      }
+    };
+    contentArea.addEventListener("scroll", onScroll, { passive: true });
     const tick = () => {
       index = Math.min(text.length, index + step);
       message.textContent = text.slice(0, index);
-      contentArea.scrollTop = message.offsetTop;
+      if (allowAutoScroll) {
+        contentArea.scrollTop = targetTop;
+      }
       if (index < text.length) {
         window.setTimeout(tick, 12);
       } else {
+        contentArea.removeEventListener("scroll", onScroll);
         resolve();
       }
     };
