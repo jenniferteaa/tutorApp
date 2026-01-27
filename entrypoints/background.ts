@@ -192,6 +192,10 @@ async function handleMessage(message: VibeTutorMessage) {
       const auth = await supabaseLogin(message.payload);
       return auth ?? { success: false, error: "Login failed" };
     }
+    case "clear-auth": {
+      await clearAuthState();
+      return { success: true };
+    }
     case "panel-opened":
     case "panel-closed":
       console.debug(`VibeTutor: ${message.action}`, message.payload);
@@ -362,6 +366,11 @@ let authCache: AuthState | null = null;
 async function setAuthState(payload: AuthState) {
   authCache = payload;
   await browser.storage.local.set({ [AUTH_STORAGE_KEY]: payload });
+}
+
+async function clearAuthState() {
+  authCache = null;
+  await browser.storage.local.remove(AUTH_STORAGE_KEY);
 }
 
 async function getAuthState() {

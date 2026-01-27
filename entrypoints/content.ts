@@ -37,6 +37,17 @@ function initializeWidget() {
   createFloatingWidget();
   loadWidgetPosition();
   setupMessageListener();
+  setupActivityTracking();
+  startProblemUrlWatcher();
+  startSessionCleanupSweep();
+  void hydrateStoredSessionCache().then(() => {
+    if (pendingStoredSession?.panelOpen) {
+      openTutorPanel();
+    }
+  });
+  window.addEventListener("beforeunload", () => {
+    void saveSessionState(currentTutorSession?.element ?? null);
+  });
 }
 
 function createFloatingWidget() {
@@ -150,6 +161,13 @@ function createFloatingWidget() {
   min-height: 250px;
   max-width: 650px;
   max-height: 520px;
+}
+
+.tutor-panel.tutor-panel-locked .tutor-panel-topbar,
+.tutor-panel.tutor-panel-locked .tutor-panel-content,
+.tutor-panel.tutor-panel-locked .tutor-panel-inputbar{
+  filter: blur(3px);
+  pointer-events: none;
 }
 
 .tutor-panel.open {
@@ -336,10 +354,14 @@ function createFloatingWidget() {
 }
 
 .tutor-panel-auth{
+  position: absolute;
+  inset: 16px;
+  z-index: 2;
   padding: 12px;
   border: 1px dashed rgba(0,0,0,0.2);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(2px);
 }
 .tutor-panel-auth h4{
   margin: 0 0 8px 0;
@@ -784,59 +806,50 @@ function getCanonicalProblemUrl(href: string): string {
   }
 }
 
-function openTutorPanel() {
-  if (
-    currentTutorSession &&
-    currentTutorSession.element &&
-    document.body.contains(currentTutorSession.element)
-  ) {
-    showTutorPanel(currentTutorSession.element);
-    hideWidget();
-    isWindowOpen = true;
-    highlightExistingPanel(currentTutorSession.element);
-    return;
-  }
+function getProblemTitleFromPage(): string {
+  return (
+    document.querySelector("div.text-title-large a")?.textContent?.trim() ?? ""
+  );
+}
 
-  const tutorPanel = createTutorPanel();
-  if (!tutorPanel) {
-    console.log("There was an error creating a panel");
-    return;
-  }
+function getSessionStorageKey(userId: string, problemName: string): string {
+  return `${SESSION_STORAGE_KEY}:${encodeURIComponent(
+    userId,
+  )}:${encodeURIComponent(problemName)}`;
+}
+
+function getRollingTopicsFromPage(): Record<
+  string,
+  { thoughts_to_remember: string[]; pitfalls: string[] }
+> {
   const topicElements = document.querySelectorAll('a[href^="/tag/"]');
-
   const topicsList = Array.from(topicElements)
     .map((el) => el.getAttribute("href"))
     .filter((href): href is string => !!href)
-    .map((href) =>
-      href.replace("/tag/", "").replace("/", "").replace("-", "_"),
-    );
+    .map((href) => href.replace("/tag/", "").replace("/", "").replace("-", "_"));
 
-  const topic: Record<string, string[]> = Object.fromEntries(
-    Array.from(new Set(topicsList)).map((t) => [t, []]),
-  );
-
-  const rollingTopics: Record<
-    string,
-    { thoughts_to_remember: string[]; pitfalls: string[] }
-  > = Object.fromEntries(
+  return Object.fromEntries(
     Array.from(new Set(topicsList)).map((t) => [
       t,
       { thoughts_to_remember: [], pitfalls: [] },
     ]),
   );
+}
 
-  const title =
-    document.querySelector("div.text-title-large a")?.textContent?.trim() ?? "";
-  console.log(title);
-
+function buildFreshSession(
+  panel: HTMLElement,
+  userId: string,
+  problemName?: string,
+): TutorSession {
+  const title = problemName ?? getProblemTitleFromPage();
   const sessionId = crypto.randomUUID();
-  currentTutorSession = {
-    element: tutorPanel,
+  return {
+    element: panel,
     sessionId,
-    userId: "",
+    userId,
     problem: title,
     problemUrl: getCanonicalProblemUrl(window.location.href),
-    topics: rollingTopics,
+    topics: getRollingTopicsFromPage(),
     content: [],
     prompt: "",
     position: null,
@@ -847,19 +860,57 @@ function openTutorPanel() {
     rollingStateGuideMode: {
       problem: title,
       nudges: [],
-      // topics: rollingTopics,
       lastEdit: "",
     },
     sessionRollingHistory: {
       qaHistory: [],
       summary: "",
       toSummarize: [],
-      // should there be a to be summarized?
     },
   };
+}
+
+function openTutorPanel() {
+  if (
+    currentTutorSession &&
+    currentTutorSession.element &&
+    document.body.contains(currentTutorSession.element)
+  ) {
+    showTutorPanel(currentTutorSession.element);
+    hideWidget();
+    isWindowOpen = true;
+    highlightExistingPanel(currentTutorSession.element);
+    markUserActivity();
+    scheduleSessionPersist(currentTutorSession.element);
+    return;
+  }
+
+  if (pendingStoredSession) {
+    const tutorPanel = createTutorPanel();
+    applyStoredSessionToPanel(tutorPanel, pendingStoredSession);
+    pendingStoredSession = null;
+    showTutorPanel(tutorPanel);
+    hideWidget();
+    isWindowOpen = true;
+    markUserActivity();
+    if (!currentTutorSession?.userId) {
+      ensureAuthPrompt(tutorPanel);
+    }
+    scheduleSessionPersist(tutorPanel);
+    return;
+  }
+
+  const tutorPanel = createTutorPanel();
+  if (!tutorPanel) {
+    console.log("There was an error creating a panel");
+    return;
+  }
+  currentTutorSession = buildFreshSession(tutorPanel, "");
   showTutorPanel(tutorPanel);
   hideWidget();
   isWindowOpen = true;
+  markUserActivity();
+  scheduleSessionPersist(tutorPanel);
   void loadAuthFromStorage().then((auth) => {
     if (!currentTutorSession) return;
     if (auth?.userId) {
@@ -951,16 +1002,324 @@ let currentTutorSession: TutorSession | null = null;
 
 type StoredAuth = { userId: string; jwt: string };
 const AUTH_STORAGE_KEY = "vibetutor-auth";
+const SESSION_STORAGE_KEY = "vibetutor-session";
+const INACTIVITY_MS = 2 * 60 * 1000;
+const ACTIVITY_PERSIST_INTERVAL_MS = 15000;
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+const SESSION_KEY_PREFIX = `${SESSION_STORAGE_KEY}:`;
+
+type StoredTutorSession = {
+  state: Omit<TutorSession, "element">;
+  panelOpen: boolean;
+  contentHtml: string;
+  lastActivityAt: number;
+};
+
+let pendingStoredSession: StoredTutorSession | null = null;
+let lastActivityAt = Date.now();
+let lastActivityStoredAt = 0;
+let sessionRestorePending = false;
+let persistTimerId: number | null = null;
+let inactivityTimerId: number | null = null;
+let problemUrlWatcherId: number | null = null;
+let lastCanonicalProblemUrl = getCanonicalProblemUrl(window.location.href);
+let cleanupTimerId: number | null = null;
 
 async function loadAuthFromStorage() {
   const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
   return (stored[AUTH_STORAGE_KEY] as StoredAuth | undefined) ?? null;
 }
 
-function ensureAuthPrompt(panel: HTMLElement) {
+async function clearAuthFromStorage() {
+  await browser.storage.local.remove(AUTH_STORAGE_KEY);
+  await browser.runtime.sendMessage({ action: "clear-auth" });
+}
+
+async function saveSessionState(
+  panel?: HTMLElement | null,
+  options?: { force?: boolean },
+) {
+  if (!currentTutorSession) return;
+  if (!currentTutorSession.userId) return;
+  if (sessionRestorePending && !options?.force) return;
+  const contentArea =
+    panel?.querySelector<HTMLElement>(".tutor-panel-content") ??
+    currentTutorSession.element?.querySelector<HTMLElement>(
+      ".tutor-panel-content",
+    );
+  const storageKey = getSessionStorageKey(
+    currentTutorSession.userId,
+    currentTutorSession.problem,
+  );
+  const stored: StoredTutorSession = {
+    state: {
+      sessionId: currentTutorSession.sessionId,
+      userId: currentTutorSession.userId,
+      content: currentTutorSession.content,
+      problem: currentTutorSession.problem,
+      problemUrl: currentTutorSession.problemUrl,
+      topics: currentTutorSession.topics,
+      prompt: currentTutorSession.prompt,
+      position: currentTutorSession.position,
+      size: currentTutorSession.size,
+      guideModeEnabled: currentTutorSession.guideModeEnabled,
+      checkModeEnabled: currentTutorSession.checkModeEnabled,
+      timerEnabled: currentTutorSession.timerEnabled,
+      rollingStateGuideMode: currentTutorSession.rollingStateGuideMode,
+      sessionRollingHistory: currentTutorSession.sessionRollingHistory,
+    },
+    panelOpen: isWindowOpen,
+    contentHtml: contentArea?.innerHTML ?? "",
+    lastActivityAt,
+  };
+  await browser.storage.local.set({ [storageKey]: stored });
+}
+
+function scheduleSessionPersist(panel?: HTMLElement | null) {
+  if (sessionRestorePending) return;
+  if (persistTimerId) return;
+  persistTimerId = window.setTimeout(() => {
+    persistTimerId = null;
+    void saveSessionState(panel);
+  }, 500);
+}
+
+async function loadSessionState(userId: string, problemName: string) {
+  const storageKey = getSessionStorageKey(userId, problemName);
+  const stored = await browser.storage.local.get(storageKey);
+  const session =
+    (stored[storageKey] as StoredTutorSession | undefined) ?? null;
+  if (!session) return null;
+  const ageMs = Date.now() - (session.lastActivityAt ?? 0);
+  if (ageMs > SESSION_TTL_MS) {
+    await browser.storage.local.remove(storageKey);
+    return null;
+  }
+  return session;
+}
+
+async function clearSessionState(userId: string, problemName: string) {
+  const storageKey = getSessionStorageKey(userId, problemName);
+  await browser.storage.local.remove(storageKey);
+}
+
+async function cleanupExpiredSessions() {
+  const stored = await browser.storage.local.get(null);
+  const now = Date.now();
+  const toRemove: string[] = [];
+  for (const [key, value] of Object.entries(stored)) {
+    if (!key.startsWith(SESSION_KEY_PREFIX)) continue;
+    const session = value as StoredTutorSession | undefined;
+    const lastActivity = session?.lastActivityAt ?? 0;
+    if (now - lastActivity > SESSION_TTL_MS) {
+      toRemove.push(key);
+    }
+  }
+  if (toRemove.length > 0) {
+    await browser.storage.local.remove(toRemove);
+  }
+}
+
+function startSessionCleanupSweep() {
+  void cleanupExpiredSessions();
+  if (cleanupTimerId) {
+    window.clearInterval(cleanupTimerId);
+  }
+  cleanupTimerId = window.setInterval(() => {
+    void cleanupExpiredSessions();
+  }, SESSION_CLEANUP_INTERVAL_MS);
+}
+
+function isStoredSessionForUser(
+  stored: StoredTutorSession,
+  userId: string,
+): boolean {
+  if (!stored.state.userId) {
+    console.log("There was no stored user in the browser.");
+    return false;
+  }
+  if (stored.state.userId !== userId) {
+    console.log(
+      "The stored user earlier is different from the one logging in now.",
+    );
+    return false;
+  }
+  const canonicalUrl = getCanonicalProblemUrl(window.location.href); // this is not needed.
+  return stored.state.problemUrl === canonicalUrl;
+}
+
+function applyStoredSessionToPanel(
+  panel: HTMLElement,
+  stored: StoredTutorSession,
+) {
+  currentTutorSession = { ...stored.state, element: panel };
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  if (!contentArea) return;
-  if (contentArea.querySelector(".tutor-panel-auth")) return;
+  if (contentArea) {
+    contentArea.innerHTML = stored.contentHtml || "";
+  }
+  const prompt = panel.querySelector<HTMLTextAreaElement>(
+    ".tutor-panel-prompt",
+  );
+  if (prompt) {
+    prompt.value = currentTutorSession.prompt ?? "";
+  }
+  if (currentTutorSession.position) {
+    panel.style.left = `${currentTutorSession.position.x}px`;
+    panel.style.top = `${currentTutorSession.position.y}px`;
+  }
+  if (currentTutorSession.size) {
+    panel.style.width = `${currentTutorSession.size.width}px`;
+    panel.style.height = `${currentTutorSession.size.height}px`;
+  }
+  const guideWrappers = panel.querySelectorAll(".guide-wrapper");
+  guideMessageCount = guideWrappers.length;
+  lastGuideMessageEl =
+    guideWrappers.length > 0
+      ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
+      : null;
+}
+
+function resetPanelForUser(panel: HTMLElement, userId: string, problemName: string) {
+  resetGuideState();
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (contentArea) {
+    contentArea.innerHTML = "";
+  }
+  const prompt = panel.querySelector<HTMLTextAreaElement>(".tutor-panel-prompt");
+  if (prompt) {
+    prompt.value = "";
+  }
+  currentTutorSession = buildFreshSession(panel, userId, problemName);
+}
+
+async function hydrateStoredSessionCache() {
+  const auth = await loadAuthFromStorage();
+  if (!auth?.userId) {
+    pendingStoredSession = null;
+    return;
+  }
+  const stored = await loadSessionState(
+    auth.userId,
+    getProblemTitleFromPage(),
+  );
+  if (!stored) {
+    pendingStoredSession = null;
+    return;
+  }
+  if (!isStoredSessionForUser(stored, auth.userId)) {
+    await clearSessionState(auth.userId, stored.state.problem);
+    pendingStoredSession = null;
+    return;
+  }
+  pendingStoredSession = stored;
+  lastActivityAt = stored.lastActivityAt ?? Date.now();
+}
+
+function markUserActivity() {
+  lastActivityAt = Date.now();
+  if (Date.now() - lastActivityStoredAt > ACTIVITY_PERSIST_INTERVAL_MS) {
+    lastActivityStoredAt = Date.now();
+    scheduleSessionPersist();
+  }
+}
+
+async function logoutForInactivity() {
+  if (currentTutorSession?.element) {
+    await saveSessionState(currentTutorSession.element, { force: true });
+    sessionRestorePending = true;
+  }
+  await clearAuthFromStorage();
+  if (currentTutorSession) {
+    currentTutorSession.guideModeEnabled = false;
+    currentTutorSession.checkModeEnabled = false;
+  }
+  if (currentTutorSession?.element) {
+    const panel = currentTutorSession.element;
+    detachGuideListeners();
+    panel.classList.remove("guidemode-active", "checkmode-active");
+    lockPanel(panel);
+    ensureAuthPrompt(panel);
+  }
+}
+
+function setupActivityTracking() {
+  const handler = () => markUserActivity();
+  const events = ["mousemove", "keydown", "click", "scroll", "input"];
+  for (const event of events) {
+    document.addEventListener(event, handler, { passive: true });
+  }
+  if (inactivityTimerId) {
+    window.clearInterval(inactivityTimerId);
+  }
+  inactivityTimerId = window.setInterval(async () => {
+    if (Date.now() - lastActivityAt < INACTIVITY_MS) return;
+    const auth = await loadAuthFromStorage();
+    if (!auth?.userId) return;
+    await logoutForInactivity();
+  }, 60_000);
+}
+
+function resetGuideState() {
+  // maybe we dont need to reset
+  guideMinIdx = Number.POSITIVE_INFINITY;
+  guideMaxIdx = -1;
+  guideBatchTimerId = null;
+  guideBatchStarted = false;
+  guideTouchedLines = new Set<number>();
+  maxLines = 0;
+  guideAttachAttempts = 0;
+  guideDrainInFlight = false;
+  lastGuideSelectionLine = null;
+  lastGuideFlushLine = null;
+  lastGuideFlushAt = 0;
+  guideMessageCount = 0;
+  lastGuideMessageEl = null;
+}
+
+function lockPanel(panel: HTMLElement) {
+  panel.classList.add("tutor-panel-locked");
+  setPanelControlsDisabled(panel, true);
+}
+
+function unlockPanel(panel: HTMLElement) {
+  panel.classList.remove("tutor-panel-locked");
+  setPanelControlsDisabled(panel, false);
+}
+
+async function handleProblemUrlChange(nextUrl: string) {
+  if (currentTutorSession?.userId) {
+    await clearSessionState(currentTutorSession.userId, currentTutorSession.problem);
+  }
+  pendingStoredSession = null;
+  resetGuideState();
+  const wasOpen = isWindowOpen;
+  if (currentTutorSession?.element) {
+    currentTutorSession.element.remove();
+  }
+  currentTutorSession = null;
+  isWindowOpen = false;
+  showWidget();
+  if (wasOpen) {
+    openTutorPanel();
+  }
+}
+
+function startProblemUrlWatcher() {
+  if (problemUrlWatcherId) {
+    window.clearInterval(problemUrlWatcherId);
+  }
+  problemUrlWatcherId = window.setInterval(() => {
+    const current = getCanonicalProblemUrl(window.location.href);
+    if (current !== lastCanonicalProblemUrl) {
+      lastCanonicalProblemUrl = current;
+      void handleProblemUrlChange(current);
+    }
+  }, 1000);
+}
+
+function ensureAuthPrompt(panel: HTMLElement) {
+  if (panel.querySelector(".tutor-panel-auth")) return;
 
   const authBox = document.createElement("div");
   authBox.className = "tutor-panel-auth";
@@ -972,7 +1331,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
     <input type="password" class="auth-password" placeholder="password" />
     <button type="button" class="auth-login">Login</button>
   `;
-  contentArea.prepend(authBox);
+  panel.appendChild(authBox);
 
   const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
   const passwordInput =
@@ -987,10 +1346,38 @@ function ensureAuthPrompt(panel: HTMLElement) {
       payload: { email, password },
     });
     if (resp?.userId && resp?.jwt) {
+      const currentUserId = currentTutorSession?.userId ?? "";
+      const problemName = currentTutorSession?.problem ?? getProblemTitleFromPage();
+
+      if (currentUserId && currentUserId === resp.userId) {
+        sessionRestorePending = false;
+        unlockPanel(panel);
+        authBox.remove();
+        scheduleSessionPersist(panel);
+        return;
+      }
+
+      if (currentUserId && currentUserId !== resp.userId) {
+        await saveSessionState(panel, { force: true });
+        resetPanelForUser(panel, resp.userId, problemName);
+      }
+
+      const stored = await loadSessionState(resp.userId, problemName);
+      if (stored && isStoredSessionForUser(stored, resp.userId)) {
+        applyStoredSessionToPanel(panel, stored);
+        await clearSessionState(resp.userId, stored.state.problem);
+        pendingStoredSession = null;
+      } else if (stored) {
+        await clearSessionState(resp.userId, stored.state.problem);
+      }
+
       if (currentTutorSession) {
         currentTutorSession.userId = resp.userId;
       }
+      sessionRestorePending = false;
+      unlockPanel(panel);
       authBox.remove();
+      scheduleSessionPersist(panel);
     }
   });
 }
@@ -1060,6 +1447,7 @@ function closeTutorPanel() {
   positionWidgetFromPanel(currentTutorSession.element);
   showWidget();
   isWindowOpen = false;
+  scheduleSessionPersist(currentTutorSession.element);
 }
 //function createTutorPanel() {}
 function highlightExistingPanel(session: HTMLElement) {}
@@ -1270,6 +1658,7 @@ async function drainGuideQueue() {
             );
           }
           //await appendToContentPanel(panel, "", "assistant", nudge);
+          scheduleSessionPersist(currentTutorSession.element ?? null);
         }
 
         const topics = reply?.topics;
@@ -1311,7 +1700,9 @@ async function drainGuideQueue() {
             }
           }
         }
-
+        if (currentTutorSession?.element) {
+          scheduleSessionPersist(currentTutorSession.element);
+        }
         flushInFlight = false;
       }
     }
@@ -1747,6 +2138,7 @@ async function appendToContentPanel(
         maybeQueueSummary(currentTutorSession.sessionRollingHistory);
       }
       content_area.scrollTop = message.offsetTop;
+      scheduleSessionPersist(panel);
     } else if (role === "guideAssistant") {
       const wrapper = appendPanelMessage(panel, "", "guideAssistant");
       if (!wrapper) return;
@@ -1766,6 +2158,7 @@ async function appendToContentPanel(
       await typeMessage(bubble, content_area, llm_response);
       bubble.innerHTML = renderMarkdown(llm_response);
       content_area.scrollTop = wrapper.offsetTop;
+      scheduleSessionPersist(panel);
     } else if (role === "checkAssistant") {
       const wrapper = appendPanelMessage(panel, "", "checkAssistant");
       if (!wrapper) return;
@@ -1783,6 +2176,7 @@ async function appendToContentPanel(
 
       wrapper.classList.add("check-end");
       content_area.scrollTop = wrapper.offsetTop;
+      scheduleSessionPersist(panel);
     }
   }
 }
@@ -1845,6 +2239,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
       }
     }
     console.log("this is the object now: ", currentTutorSession?.topics);
+    scheduleSessionPersist(panel);
     return response?.resp;
   } catch (error) {
     console.error("checkMode failed", error);
@@ -1885,6 +2280,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       panel.classList.remove("guidemode-active");
       guideModeButton?.classList.remove("is-loading");
     }
+    scheduleSessionPersist(panel);
   });
 
   const prompt = panel.querySelector<HTMLTextAreaElement>(
@@ -1908,8 +2304,10 @@ function setupTutorPanelEvents(panel: HTMLElement) {
         `user: ${toAsk}`,
       );
       maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      scheduleSessionPersist(panel);
       const resp = await askAnything(panel, toAsk);
       currentTutorSession.prompt = "";
+      scheduleSessionPersist(panel);
     }
   });
 
@@ -1945,6 +2343,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       }
       setPanelControlsDisabled(panel, false);
       panel.classList.remove("checkmode-active");
+      scheduleSessionPersist(panel);
     }
   });
 
@@ -1952,6 +2351,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     if (currentTutorSession) {
       currentTutorSession.prompt = prompt.value;
     }
+    scheduleSessionPersist(panel);
   });
 
   let isPanelDragging = false;
@@ -1984,6 +2384,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
         y: panel.offsetTop,
       };
     }
+    scheduleSessionPersist(panel);
   };
 
   header?.addEventListener("mousedown", (event) => {
