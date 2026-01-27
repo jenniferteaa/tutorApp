@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from pydantic import BaseModel
 from services.llmRequests import requestingCodeCheck, answerAskanything, guideModeAssist, requestSummarization
 from models import RollingStateGuideMode, TopicNotes
+from services.authService import login_with_supabase, verify_backend_token
 
 app = FastAPI()
 
@@ -32,11 +33,21 @@ class CodeToSummarize(BaseModel):
     summarize: list[str]
     summary: str
 
+class LoginPayload(BaseModel):
+    email: str
+    password: str
+
 @app.post("/api/llm")
-def llm(req: CodeRequest):
+def llm(req: CodeRequest, authorization: str | None = Header(default=None)):
     match req.action:
         case "check-code":
-            response = requestingCodeCheck(req.topics, req.code)
+            token = None
+            if authorization and authorization.startswith("Bearer "):
+                token = authorization.split(" ", 1)[1].strip()
+            user_id = verify_backend_token(token)
+            if not user_id:
+                return {"success": False, "error": "Unauthorized"}
+            response = requestingCodeCheck(req.topics, req.code, req.sessionId, user_id)
             return {"success": True, "reply": response}
         case _:
             return {"success": False, "error": "Unknown request type"}
@@ -65,3 +76,10 @@ def llmGuideMode(req: GuideModeRequest):
             return {"success": True, "reply": response}
         case _:
             return {"success": False, "error": "Unknown guide mode action"}
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginPayload):
+    result = login_with_supabase(req.email, req.password)
+    if not result:
+        return {"success": False, "error": "Invalidd credentials"}
+    return {"success": True, **result}
