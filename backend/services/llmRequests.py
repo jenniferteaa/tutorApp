@@ -6,6 +6,7 @@ from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
+from services.dbWriter import write_checkmode_result
 
 load_dotenv()
 
@@ -26,7 +27,12 @@ def log_token_usage(label: str, usage: dict) -> None:
         f"{label} token usage - prompt: {usage['prompt_tokens']}, "
         f"completion: {usage['completion_tokens']}, total: {usage['total_tokens']}"
     )
-def requestingCodeCheck(topics: dict[str, TopicNotes], code: str):
+def requestingCodeCheck(
+    topics: dict[str, TopicNotes],
+    code: str,
+    session_id: str | None = None,
+    user_id: str | None = None,
+):
 
     system_prompt = """
     Given the following code, perform checks.
@@ -81,6 +87,14 @@ def requestingCodeCheck(topics: dict[str, TopicNotes], code: str):
             else:
                 data["topics"] = deduped
         data["isSimilar"] = isSimilar
+
+        if session_id and user_id:
+            write_checkmode_result(
+                user_id,
+                session_id,
+                data.get("topics") or {},
+                data.get("resp") or "",
+            )
 
         return data
 

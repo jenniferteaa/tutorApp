@@ -335,6 +335,45 @@ function createFloatingWidget() {
   gap: 10px;
 }
 
+.tutor-panel-auth{
+  padding: 12px;
+  border: 1px dashed rgba(0,0,0,0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+}
+.tutor-panel-auth h4{
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.tutor-panel-auth label{
+  display: block;
+  font-size: 12px;
+  margin: 6px 0 2px;
+}
+.tutor-panel-auth input{
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+}
+.tutor-panel-auth button{
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.2);
+  background: rgba(229, 233, 226, 0.92);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tutor-panel-auth .auth-supabase{
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.1);
+}
+
 .tutor-panel-message{
   margin: 0;
   padding: 10px 12px;
@@ -734,6 +773,17 @@ function setupWidgetEvents() {
   }
 }
 
+function getCanonicalProblemUrl(href: string): string {
+  try {
+    const { origin, pathname } = new URL(href);
+    const match = pathname.match(/^\/problems\/[^/]+/);
+    if (match) return `${origin}${match[0]}`;
+    return `${origin}${pathname}`;
+  } catch {
+    return href;
+  }
+}
+
 function openTutorPanel() {
   if (
     currentTutorSession &&
@@ -783,7 +833,9 @@ function openTutorPanel() {
   currentTutorSession = {
     element: tutorPanel,
     sessionId,
+    userId: "",
     problem: title,
+    problemUrl: getCanonicalProblemUrl(window.location.href),
     topics: rollingTopics,
     content: [],
     prompt: "",
@@ -808,6 +860,14 @@ function openTutorPanel() {
   showTutorPanel(tutorPanel);
   hideWidget();
   isWindowOpen = true;
+  void loadAuthFromStorage().then((auth) => {
+    if (!currentTutorSession) return;
+    if (auth?.userId) {
+      currentTutorSession.userId = auth.userId;
+      return;
+    }
+    ensureAuthPrompt(tutorPanel);
+  });
 
   // Auto-focus the textarea when created via shortcut
   setTimeout(() => {
@@ -869,8 +929,10 @@ type RollingStateGuideMode = {
 type TutorSession = {
   element: HTMLElement;
   sessionId: string;
+  userId: string;
   content: string[];
   problem: string;
+  problemUrl: string;
   topics: Record<
     string,
     { thoughts_to_remember: string[]; pitfalls: string[] }
@@ -886,6 +948,52 @@ type TutorSession = {
 };
 
 let currentTutorSession: TutorSession | null = null;
+
+type StoredAuth = { userId: string; jwt: string };
+const AUTH_STORAGE_KEY = "vibetutor-auth";
+
+async function loadAuthFromStorage() {
+  const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
+  return (stored[AUTH_STORAGE_KEY] as StoredAuth | undefined) ?? null;
+}
+
+function ensureAuthPrompt(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return;
+  if (contentArea.querySelector(".tutor-panel-auth")) return;
+
+  const authBox = document.createElement("div");
+  authBox.className = "tutor-panel-auth";
+  authBox.innerHTML = `
+    <h4>Login Required</h4>
+    <label>Email</label>
+    <input type="email" class="auth-email" placeholder="you@example.com" />
+    <label>Password</label>
+    <input type="password" class="auth-password" placeholder="password" />
+    <button type="button" class="auth-login">Login</button>
+  `;
+  contentArea.prepend(authBox);
+
+  const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
+  const passwordInput =
+    authBox.querySelector<HTMLInputElement>(".auth-password");
+  const login = authBox.querySelector<HTMLButtonElement>(".auth-login");
+  login?.addEventListener("click", async () => {
+    const email = emailInput?.value.trim() ?? "";
+    const password = passwordInput?.value.trim() ?? "";
+    if (!email || !password) return;
+    const resp = await browser.runtime.sendMessage({
+      action: "supabase-login",
+      payload: { email, password },
+    });
+    if (resp?.userId && resp?.jwt) {
+      if (currentTutorSession) {
+        currentTutorSession.userId = resp.userId;
+      }
+      authBox.remove();
+    }
+  });
+}
 
 type PanelPosition = { x: number; y: number };
 type PanelSize = { width: number; height: number };

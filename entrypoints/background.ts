@@ -184,8 +184,14 @@ async function handleMessage(message: VibeTutorMessage) {
       if (!data) return "Failure";
       return data;
     }
-    // case "get-tab-info":
-    //   return handleGetTabInfo(sender);
+    case "supabase-login": {
+      //
+      if (!isSupabaseLoginPayload(message.payload)) {
+        return { success: false, error: "Invalid login payload" };
+      }
+      const auth = await supabaseLogin(message.payload);
+      return auth ?? { success: false, error: "Login failed" };
+    }
     case "panel-opened":
     case "panel-closed":
       console.debug(`VibeTutor: ${message.action}`, message.payload);
@@ -211,17 +217,6 @@ type RollingStateGuideMode = {
   nudges: string[]; // keep last N
   lastEdit: string;
 };
-
-// type RollingStateGuideMode = {
-//   problem: string;
-//   topics: Record<string, string[]>;
-//   approach: string;
-//   decisions: string[];
-//   pitfallsFlagged: string[];
-//   lastEdit: string;
-//   nudges: string[];
-//   thoughts_to_remember: string[];
-// };
 
 async function handleGuideMode(payload: {
   sessionId: string;
@@ -358,6 +353,25 @@ async function handleSummarize(payload: {
   return data.reply;
 }
 
+type AuthState = { userId: string; jwt: string };
+const AUTH_STORAGE_KEY = "vibetutor-auth";
+const BACKEND_BASE_URL = "http://127.0.0.1:8000";
+
+let authCache: AuthState | null = null;
+
+async function setAuthState(payload: AuthState) {
+  authCache = payload;
+  await browser.storage.local.set({ [AUTH_STORAGE_KEY]: payload });
+}
+
+async function getAuthState() {
+  if (authCache) return authCache;
+  const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
+  authCache = (stored[AUTH_STORAGE_KEY] as AuthState | undefined) ?? null;
+  return authCache;
+}
+
+
 async function handleSolution(payload: { sessionId: string }) {
   console.debug("VibeTutor: solution requested", payload.sessionId);
   return {
@@ -383,15 +397,6 @@ async function handleGoToWorkspace() {
   }
 }
 
-// async function handleAskAway(payload: { sessionId: string; text: string }) {
-//   console.debug("VibeTutor: ask-away prompt received", payload.sessionId);
-//   // TODO: call chat helper / LLM
-//   return {
-//     success: true,
-//     reply: "Chat endpoint not wired yet.",
-//   };
-// }
-
 async function forwardCodeForCheckMode(
   sessionId: string,
   topics: Record<
@@ -402,9 +407,16 @@ async function forwardCodeForCheckMode(
   action: string,
 ) {
   try {
+    const auth = await getAuthState();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (auth?.jwt) {
+      headers.Authorization = `Bearer ${auth.jwt}`;
+    }
     const response = await fetch("http://127.0.0.1:8000/api/llm", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ sessionId, topics, code, action }),
     });
     const text = await response.text();
@@ -441,7 +453,13 @@ async function forwardCodeToBackend(
     const response = await fetch("http://127.0.0.1:8000/api/llm/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, action, rollingHistory, summary, query }),
+      body: JSON.stringify({
+        sessionId,
+        action,
+        rollingHistory,
+        summary,
+        query,
+      }),
     });
 
     const text = await response.text(); // read once
@@ -654,6 +672,45 @@ function isSummarizePayload(payload: unknown): payload is {
     return false;
   }
   return typeof maybe.summary === "string";
+}
+
+
+function isSupabaseLoginPayload(payload: unknown): payload is {
+  email: string;
+  password: string;
+} {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+  const maybe = payload as {
+    email?: unknown;
+    password?: unknown;
+  };
+  return typeof maybe.email === "string" && typeof maybe.password === "string";
+}
+
+async function supabaseLogin(payload: { email: string; password: string }) {
+  try {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: payload.email,
+        password: payload.password,
+      }),
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!response.ok || !data?.token || !data?.userId) {
+      return null;
+    }
+    const auth = { userId: data.userId as string, jwt: data.token as string };
+    await setAuthState(auth);
+    return auth;
+  } catch (error) {
+    console.error("VibeTutor: supabase login failed", error);
+    return null;
+  }
 }
 
 // Handle tab updates to reinject content script if needed
