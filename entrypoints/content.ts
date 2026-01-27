@@ -42,7 +42,7 @@ function initializeWidget() {
   startSessionCleanupSweep();
   void hydrateStoredSessionCache().then(() => {
     if (pendingStoredSession?.panelOpen) {
-      openTutorPanel();
+      void openTutorPanel();
     }
   });
   window.addEventListener("beforeunload", () => {
@@ -173,6 +173,38 @@ function createFloatingWidget() {
 .tutor-panel.open {
   opacity: 1;
   transform: scale(0.9) rotate(0deg);
+}
+
+.tutor-panel-loading{
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000001;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0,0,0,0.75);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.12);
+}
+
+.tutor-panel-loading-spinner{
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-top-color: rgba(0,0,0,0.6);
+  animation: tutorPanelSpin 0.8s linear infinite;
+}
+
+@keyframes tutorPanelSpin{
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .tutor-panel.dragging{
@@ -710,7 +742,7 @@ function setupWidgetEvents() {
       if (isWindowOpen) {
         closeTutorPanel(); // highlight it instead; highlightTutorPanel
       } else {
-        openTutorPanel(); //
+        void openTutorPanel(); //
       }
     }
   });
@@ -870,7 +902,7 @@ function buildFreshSession(
   };
 }
 
-function openTutorPanel() {
+async function openTutorPanel() {
   if (
     currentTutorSession &&
     currentTutorSession.element &&
@@ -883,6 +915,28 @@ function openTutorPanel() {
     markUserActivity();
     scheduleSessionPersist(currentTutorSession.element);
     return;
+  }
+
+  if (currentTutorSession?.userId) {
+    showPanelLoading();
+    try {
+      await saveSessionState(currentTutorSession.element ?? null, { force: true });
+    } finally {
+      hidePanelLoading();
+    }
+  }
+
+  if (!pendingStoredSession) {
+    const auth = await loadAuthFromStorage();
+    if (auth?.userId) {
+      const stored = await loadSessionState(
+        auth.userId,
+        getProblemTitleFromPage(),
+      );
+      if (stored && isStoredSessionForUser(stored, auth.userId)) {
+        pendingStoredSession = stored;
+      }
+    }
   }
 
   if (pendingStoredSession) {
@@ -1287,9 +1341,22 @@ function unlockPanel(panel: HTMLElement) {
   setPanelControlsDisabled(panel, false);
 }
 
+function showPanelLoading() {
+  if (document.getElementById("tutor-panel-loading")) return;
+  const loading = document.createElement("div");
+  loading.id = "tutor-panel-loading";
+  loading.className = "tutor-panel-loading";
+  loading.innerHTML = `<span class="tutor-panel-loading-spinner"></span><span>Restoring session...</span>`;
+  document.body.appendChild(loading);
+}
+
+function hidePanelLoading() {
+  document.getElementById("tutor-panel-loading")?.remove();
+}
+
 async function handleProblemUrlChange(nextUrl: string) {
-  if (currentTutorSession?.userId) {
-    await clearSessionState(currentTutorSession.userId, currentTutorSession.problem);
+  if (currentTutorSession?.userId && currentTutorSession.element) {
+    await saveSessionState(currentTutorSession.element, { force: true });
   }
   pendingStoredSession = null;
   resetGuideState();
@@ -1300,8 +1367,9 @@ async function handleProblemUrlChange(nextUrl: string) {
   currentTutorSession = null;
   isWindowOpen = false;
   showWidget();
+  await hydrateStoredSessionCache();
   if (wasOpen) {
-    openTutorPanel();
+    void openTutorPanel();
   }
 }
 
