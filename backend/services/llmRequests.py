@@ -1,17 +1,126 @@
 import os
 import time
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from openai import OpenAI
 from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
-from services.dbWriter import write_checkmode_result
+from services.dbWriter import write_checkmode_result_v2, buffer_guide_write, flush_guide_buffer, is_db_write_in_flight
+from services.redisClient import r, rkey, set_json, get_json
 
 load_dotenv()
 
 client = OpenAI()
 # implement the code here to validate the session Id
+
+GUIDE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
+
+_LUA_MERGE_TOPICS = """
+local key = KEYS[1]
+local incoming = cjson.decode(ARGV[1])
+local ttl = tonumber(ARGV[2])
+
+local current = redis.call("GET", key)
+local acc = {}
+if current then
+  acc = cjson.decode(current)
+end
+
+for topic, payload in pairs(incoming) do
+  if type(payload) == "table" then
+    if acc[topic] == nil then
+      acc[topic] = { thoughts_to_remember = {}, pitfalls = {} }
+    end
+    local entry = acc[topic]
+    local thoughts = payload["thoughts_to_remember"]
+    if type(thoughts) == "string" then
+      table.insert(entry["thoughts_to_remember"], thoughts)
+    elseif type(thoughts) == "table" then
+      for _, v in ipairs(thoughts) do
+        if type(v) == "string" and v ~= "" then
+          table.insert(entry["thoughts_to_remember"], v)
+        end
+      end
+    end
+    local pitfalls = payload["pitfalls"]
+    if type(pitfalls) == "string" then
+      table.insert(entry["pitfalls"], pitfalls)
+    elseif type(pitfalls) == "table" then
+      for _, v in ipairs(pitfalls) do
+        if type(v) == "string" and v ~= "" then
+          table.insert(entry["pitfalls"], v)
+        end
+      end
+    end
+  end
+end
+
+redis.call("SET", key, cjson.encode(acc), "EX", ttl)
+return 1
+"""
+
+def _format_guide_summary(acc: dict[str, dict[str, list[str]]]) -> str:
+    lines: list[str] = ["Guide mode summary:"]
+    for topic_name, payload in acc.items():
+        thoughts = payload.get("thoughts_to_remember") or []
+        pitfalls = payload.get("pitfalls") or []
+        total = len(thoughts) + len(pitfalls)
+        lines.append(f"- {topic_name}: {total} notes")
+    return "\n".join(lines)
+
+def guide_mode_enable(
+    session_id: str,
+    user_id: str,
+    problem_no: int | None,
+    problem_name: str,
+    problem_url: str,
+) -> None:
+    enabled_key = rkey("guide:enabled", user_id, session_id)
+    meta_key = rkey("guide:meta", user_id, session_id)
+    topics_key = rkey("guide:topics", user_id, session_id)
+
+    r.set(enabled_key, "1", ex=GUIDE_TTL_SECONDS)
+    set_json(meta_key, {
+        "problem_no": problem_no,
+        "problem_name": problem_name,
+        "problem_url": problem_url,
+    }, ex=GUIDE_TTL_SECONDS)
+
+    if not r.exists(topics_key):
+        set_json(topics_key, {}, ex=GUIDE_TTL_SECONDS)
+    else:
+        r.expire(topics_key, GUIDE_TTL_SECONDS)
+
+def guide_mode_disable(
+    session_id: str,
+    user_id: str,
+    problem_no: int | None,
+    problem_name: str,
+    problem_url: str,
+) -> None:
+    enabled_key = rkey("guide:enabled", user_id, session_id)
+    meta_key = rkey("guide:meta", user_id, session_id)
+    topics_key = rkey("guide:topics", user_id, session_id)
+
+    acc = get_json(topics_key) or {}
+    if not acc:
+        r.delete(enabled_key, meta_key, topics_key)
+        return
+    buffer_guide_write(
+        {
+            "user_id": user_id,
+            "session_id": session_id,
+            "problem_no": problem_no,
+            "problem_name": problem_name,
+            "problem_url": problem_url,
+            "topics": acc,
+            "response_text": _format_guide_summary(acc),
+        }
+    )
+    flush_guide_buffer()
+    r.delete(enabled_key, meta_key, topics_key)
 def get_token_usage(response) -> dict:
     usage = getattr(response, "usage", None)
     if not usage:
@@ -32,6 +141,9 @@ def requestingCodeCheck(
     code: str,
     session_id: str | None = None,
     user_id: str | None = None,
+    problem_no: int | None = None,
+    problem_name: str | None = None,
+    problem_url: str | None = None,
 ):
 
     system_prompt = """
@@ -88,13 +200,32 @@ def requestingCodeCheck(
                 data["topics"] = deduped
         data["isSimilar"] = isSimilar
 
-        if session_id and user_id:
-            write_checkmode_result(
-                user_id,
-                session_id,
-                data.get("topics") or {},
-                data.get("resp") or "",
-            )
+        if session_id and user_id and problem_no and problem_name and problem_url:
+            payload = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "problem_no": problem_no,
+                "problem_name": problem_name,
+                "problem_url": problem_url,
+                "topics": data.get("topics") or {},
+                "response_text": data.get("resp") or "",
+            }
+            if is_db_write_in_flight():
+                buffer_guide_write(payload)
+            else:
+                write_checkmode_result_v2(**payload)
+        else:
+            return{
+                "success": False,
+                "error": "Missing required metadata for persistence",
+                "details": {
+                    "session_id": bool(session_id),
+                    "user_id": bool(user_id),
+                    "problem_no": bool(problem_no),
+                    "problem_name": bool(problem_name),
+                    "problem_url": bool(problem_url),
+                },
+            }
 
         return data
 
@@ -104,7 +235,7 @@ def requestingCodeCheck(
         return str(e)
 
 
-def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode):
+def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, session_id: str | None = None, user_id: str | None = None):
     problem = problem
     topics = topics
     fullCode = code
@@ -231,6 +362,12 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
             data["nudgediscarded"] = nudges
 
         data["isSimilarNudges"] = isSimilarNudges
+        if session_id and user_id:
+            enabled_key = rkey("guide:enabled", user_id, session_id)
+            if r.get(enabled_key):
+                topics_key = rkey("guide:topics", user_id, session_id)
+                incoming = data.get("topics") or {}
+                r.eval(_LUA_MERGE_TOPICS, 1, topics_key, json.dumps(incoming), str(GUIDE_TTL_SECONDS))
         #print("LLM data: ", data)
         
 

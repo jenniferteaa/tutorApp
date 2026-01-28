@@ -133,6 +133,12 @@ async function handleMessage(message: VibeTutorMessage) {
       }
       return handleGuideMode(message.payload);
     }
+    case "guide-mode-status": {
+      if (!isGuideModeStatusPayload(message.payload)) {
+        return { success: false, error: "Invalid guide status payload" };
+      }
+      return handleGuideModeStatus(message.payload);
+    }
     case "check-code": {
       if (!isCheckCodePayload(message.payload)) {
         return { success: false, error: "Invalid check code payload" };
@@ -192,6 +198,10 @@ async function handleMessage(message: VibeTutorMessage) {
       const auth = await supabaseLogin(message.payload);
       return auth ?? { success: false, error: "Login failed" };
     }
+    case "clear-auth": {
+      await clearAuthState();
+      return { success: true };
+    }
     case "panel-opened":
     case "panel-closed":
       console.debug(`VibeTutor: ${message.action}`, message.payload);
@@ -246,6 +256,46 @@ async function handleGuideMode(payload: {
   );
 }
 
+async function handleGuideModeStatus(payload: {
+  enabled: boolean;
+  sessionId: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
+}) {
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, error: "Unauthorized" };
+  }
+  return forwardGuideModeStatus(payload, auth.jwt);
+}
+
+async function forwardGuideModeStatus(
+  payload: {
+    enabled: boolean;
+    sessionId: string;
+    problem_no: number | null;
+    problem_name: string;
+    problem_url: string;
+  },
+  token: string,
+) {
+  const endpoint = payload.enabled ? "/api/guide/enable" : "/api/guide/disable";
+  const response = await fetch(`${BACKEND_BASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { success: false, error: text || "Guide mode status failed" };
+  }
+  return { success: true };
+}
+
 async function forwardCodeToBackendGuideMode(
   sessionId: string,
   action: string,
@@ -259,9 +309,16 @@ async function forwardCodeToBackendGuideMode(
   rollingStateGuideMode: RollingStateGuideMode,
 ) {
   try {
+    const auth = await getAuthState();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (auth?.jwt) {
+      headers.Authorization = `Bearer ${auth.jwt}`;
+    }
     const response = await fetch("http://127.0.0.1:8000/api/llm/guide", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         sessionId,
         action,
@@ -307,6 +364,9 @@ async function handleCheckCode(payload: {
   >;
   code: string;
   action: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
 }) {
   console.debug("VibeTutor: check-code payload received");
   const data = await forwardCodeForCheckMode(
@@ -314,6 +374,9 @@ async function handleCheckCode(payload: {
     payload.topics,
     payload.code,
     payload.action ?? "check-code",
+    payload.problem_no,
+    payload.problem_name,
+    payload.problem_url,
   );
   //console.log("this is the data received: ", data.reply);
   return data.reply;
@@ -364,6 +427,11 @@ async function setAuthState(payload: AuthState) {
   await browser.storage.local.set({ [AUTH_STORAGE_KEY]: payload });
 }
 
+async function clearAuthState() {
+  authCache = null;
+  await browser.storage.local.remove(AUTH_STORAGE_KEY);
+}
+
 async function getAuthState() {
   if (authCache) return authCache;
   const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
@@ -405,6 +473,9 @@ async function forwardCodeForCheckMode(
   >,
   code: string,
   action: string,
+  problem_no: number | null,
+  problem_name: string,
+  problem_url: string,
 ) {
   try {
     const auth = await getAuthState();
@@ -417,7 +488,15 @@ async function forwardCodeForCheckMode(
     const response = await fetch("http://127.0.0.1:8000/api/llm", {
       method: "POST",
       headers,
-      body: JSON.stringify({ sessionId, topics, code, action }),
+      body: JSON.stringify({
+        sessionId,
+        topics,
+        code,
+        action,
+        problem_no,
+        problem_name,
+        problem_url,
+      }),
     });
     const text = await response.text();
     let data: any = null;
@@ -594,6 +673,9 @@ function isCheckCodePayload(payload: unknown): payload is {
   >;
   code: string;
   action?: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
 } {
   if (typeof payload != "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
@@ -602,9 +684,29 @@ function isCheckCodePayload(payload: unknown): payload is {
   if (typeof p.topics !== "object" || p.topics === null) return false;
   if (typeof p.code !== "string") return false;
   if (typeof p.action !== "string") return false;
+  if (!("problem_no" in p) || (p.problem_no !== null && typeof p.problem_no !== "number")) return false;
+  if (typeof p.problem_name !== "string") return false;
+  if (typeof p.problem_url !== "string") return false;
   return Object.values(p.topics as Record<string, unknown>).every(
     isTopicBucket,
   );
+}
+
+function isGuideModeStatusPayload(payload: unknown): payload is {
+  enabled: boolean;
+  sessionId: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
+} {
+  if (typeof payload !== "object" || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.enabled !== "boolean") return false;
+  if (typeof p.sessionId !== "string") return false;
+  if (!("problem_no" in p) || (p.problem_no !== null && typeof p.problem_no !== "number")) return false;
+  if (typeof p.problem_name !== "string") return false;
+  if (typeof p.problem_url !== "string") return false;
+  return true;
 }
 
 function isSolutionPayload(payload: unknown): payload is { sessionId: string } {
