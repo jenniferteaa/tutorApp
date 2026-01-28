@@ -108,7 +108,7 @@ function createFloatingWidget() {
       box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
       transition: all 0.3s ease;
       border: 2px solid rgba(255, 255, 255, 0.3);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(2px);
       position: relative;
     }
       .widget-main-button.dragging {
@@ -128,8 +128,8 @@ function createFloatingWidget() {
 
 .tutor-panel{
   position: fixed;
-  width: 320px;
-  height: 260px;
+  width: 450px;
+  height: 400px;
 
   /* Sticky note look */
   background: rgba(255, 251, 147, 0.98);
@@ -163,10 +163,31 @@ function createFloatingWidget() {
   max-height: 520px;
 }
 
-.tutor-panel.tutor-panel-locked .tutor-panel-topbar,
-.tutor-panel.tutor-panel-locked .tutor-panel-content,
-.tutor-panel.tutor-panel-locked .tutor-panel-inputbar{
-  filter: blur(3px);
+.tutor-panel-shellbar{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(239, 230, 188, 0.65);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  cursor: grab;
+}
+
+.tutor-panel-shellbar:active{
+  cursor: grabbing;
+}
+
+.tutor-panel-inner{
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.tutor-panel.tutor-panel-locked .tutor-panel-inner .tutor-panel-topbar,
+.tutor-panel.tutor-panel-locked .tutor-panel-inner .tutor-panel-content,
+.tutor-panel.tutor-panel-locked .tutor-panel-inner .tutor-panel-inputbar{
+  filter: blur(5px);
   pointer-events: none;
 }
 
@@ -387,13 +408,22 @@ function createFloatingWidget() {
 
 .tutor-panel-auth{
   position: absolute;
-  inset: 16px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 280px;      /* smaller box */
+  padding: 12px;
+ /* inset: 16px; */
   z-index: 2;
   padding: 12px;
-  border: 1px dashed rgba(0,0,0,0.2);
+ /* border: 1px dashed rgba(0,0,0,0.2); */
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(5px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 .tutor-panel-auth h4{
   margin: 0 0 8px 0;
@@ -410,6 +440,7 @@ function createFloatingWidget() {
   padding: 6px 8px;
   border: 1px solid rgba(0,0,0,0.2);
   border-radius: 6px;
+  margin-top: 6px;
   background: rgba(255, 255, 255, 0.9);
 }
 .tutor-panel-auth button{
@@ -959,6 +990,7 @@ async function openTutorPanel() {
     isWindowOpen = true;
     markUserActivity();
     if (!currentTutorSession?.userId) {
+      lockPanel(tutorPanel); // #lockpanel
       ensureAuthPrompt(tutorPanel);
     }
     scheduleSessionPersist(tutorPanel);
@@ -982,9 +1014,10 @@ async function openTutorPanel() {
       currentTutorSession.userId = auth.userId;
       return;
     }
+    lockPanel(tutorPanel);
     ensureAuthPrompt(tutorPanel);
   });
-
+  // lockPanel
   // Auto-focus the textarea when created via shortcut
   setTimeout(() => {
     const textarea = tutorPanel.querySelector(
@@ -1068,7 +1101,8 @@ let currentTutorSession: TutorSession | null = null;
 type StoredAuth = { userId: string; jwt: string };
 const AUTH_STORAGE_KEY = "vibetutor-auth";
 const SESSION_STORAGE_KEY = "vibetutor-session";
-const INACTIVITY_MS = 2 * 60 * 1000;
+const INACTIVITY_MS = 1 * 60 * 1000; // 57,600,000
+// const INACTIVITY_MS = 16 * 60 * 60 * 1000; // 57,600,000
 const ACTIVITY_PERSIST_INTERVAL_MS = 15000;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
@@ -1407,9 +1441,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
   authBox.className = "tutor-panel-auth";
   authBox.innerHTML = `
     <h4>Login Required</h4>
-    <label>Email</label>
     <input type="email" class="auth-email" placeholder="you@example.com" />
-    <label>Password</label>
     <input type="password" class="auth-password" placeholder="password" />
     <button type="button" class="auth-login">Login</button>
   `;
@@ -1480,25 +1512,35 @@ function createTutorPanel() {
   panel.classList.add("tutor-panel");
 
   panel.innerHTML = `
-    <div class="tutor-panel-topbar">
+    <div class="tutor-panel-shellbar">
       <button class="tutor-panel-close">×</button>
-      <div class="tutor-panel-actions">
-        <button class="btn-guide-mode">Guide me</button>
-        <button class="btn-help-mode">Check mode</button>
-        <button class="btn-timer">Timer</button>
-      </div>
     </div>
 
-    <div class="tutor-panel-content"></div>
+    <div class="tutor-panel-inner">
+      <div class="tutor-panel-topbar">
+        <div class="tutor-panel-actions">
+          <button class="btn-guide-mode">Guide me</button>
+          <button class="btn-help-mode">Check mode</button>
+          <button class="btn-timer">Timer</button>
+        </div>
+      </div>
 
-    <div class="tutor-panel-inputbar">
-      <textarea class="tutor-panel-prompt" placeholder="Ask anything"></textarea>
-      <button class="tutor-panel-send">Enter</button>
+      <div class="tutor-panel-content"></div>
+
+      <div class="tutor-panel-inputbar">
+        <textarea class="tutor-panel-prompt" placeholder="Ask anything"></textarea>
+        <button class="tutor-panel-send">Enter</button>
+      </div>
     </div>
   `;
 
   panel.style.position = "fixed";
   panel.style.zIndex = "1000000";
+  panel.style.left = "50%";
+  panel.style.top = "50%";
+  panel.style.right = "50%";
+  panel.style.bottom = "50%";
+  // panel.style.transform = "translate(-50%, -50%)";
 
   document.body.appendChild(panel);
 
@@ -2415,6 +2457,9 @@ function setupTutorPanelEvents(panel: HTMLElement) {
 
   // const content_area = panel.querySelector<HTMLElement>(".tutor-panel-content");
 
+  closeButton?.addEventListener("mousedown", (event) => {
+    event.stopPropagation();
+  });
   closeButton?.addEventListener("click", async () => closeTutorPanel());
   // i am taking the repsonse from checkMode function and awaiting it here. Lets see if this works
   checkModeClicked?.addEventListener("click", async () => {
@@ -2460,7 +2505,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   let dragOffsetX = 0;
   let dragOffsetY = 0;
 
-  const header = panel.querySelector<HTMLElement>(".tutor-panel-topbar");
+  const header = panel.querySelector<HTMLElement>(".tutor-panel-shellbar");
   const onMouseMove = (event: MouseEvent) => {
     if (!isPanelDragging) return;
     const nextX = event.clientX - dragOffsetX;

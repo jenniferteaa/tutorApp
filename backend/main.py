@@ -84,11 +84,17 @@ def llmAsk(req: AskPayload):
             return {"success": False, "error": "Unknown request type"}
 
 @app.post("/api/llm/guide")
-def llmGuideMode(req: GuideModeRequest):
+def llmGuideMode(req: GuideModeRequest, authorization: str | None = Header(default=None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    user_id = verify_backend_token(token)
+    if not user_id:
+        return {"success": False, "error": "Unauthorized"}
     match(req.action):
         case "guide-mode":
             response = guideModeAssist(
-                req.problem, req.topics, req.code, req.focusLine, req.rollingStateGuideMode, req.sessionId
+                req.problem, req.topics, req.code, req.focusLine, req.rollingStateGuideMode, req.sessionId, user_id
             )
             return {"success": True, "reply": response}
         case _:

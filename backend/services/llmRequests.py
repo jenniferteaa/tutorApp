@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from openai import OpenAI
 from models import RollingStateGuideMode, TopicNotes
@@ -7,43 +8,58 @@ from pydantic import BaseModel
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
 from services.dbWriter import write_checkmode_result_v2, buffer_guide_write, flush_guide_buffer, is_db_write_in_flight
+from services.redisClient import r, rkey, set_json, get_json
 
 load_dotenv()
 
 client = OpenAI()
 # implement the code here to validate the session Id
 
-_GUIDE_ENABLED: dict[str, bool] = {}
-_GUIDE_ACCUM: dict[str, dict[str, dict[str, list[str]]]] = {}
-_GUIDE_META: dict[str, dict[str, object]] = {}
+GUIDE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
 
-def _accumulate_topics(
-    acc: dict[str, dict[str, list[str]]],
-    incoming: dict[str, dict[str, list[str]]],
-) -> None:
-    for topic_name, payload in (incoming or {}).items():
-        if not isinstance(payload, dict):
-            continue
-        entry = acc.setdefault(
-            topic_name,
-            {"thoughts_to_remember": [], "pitfalls": []},
-        )
-        thoughts = payload.get("thoughts_to_remember") or []
-        pitfalls = payload.get("pitfalls") or []
+_LUA_MERGE_TOPICS = """
+local key = KEYS[1]
+local incoming = cjson.decode(ARGV[1])
+local ttl = tonumber(ARGV[2])
 
-        if isinstance(thoughts, list):
-            entry["thoughts_to_remember"].extend(
-                [t for t in thoughts if isinstance(t, str) and t.strip()]
-            )
-        elif isinstance(thoughts, str) and thoughts.strip():
-            entry["thoughts_to_remember"].append(thoughts.strip())
+local current = redis.call("GET", key)
+local acc = {}
+if current then
+  acc = cjson.decode(current)
+end
 
-        if isinstance(pitfalls, list):
-            entry["pitfalls"].extend(
-                [p for p in pitfalls if isinstance(p, str) and p.strip()]
-            )
-        elif isinstance(pitfalls, str) and pitfalls.strip():
-            entry["pitfalls"].append(pitfalls.strip())
+for topic, payload in pairs(incoming) do
+  if type(payload) == "table" then
+    if acc[topic] == nil then
+      acc[topic] = { thoughts_to_remember = {}, pitfalls = {} }
+    end
+    local entry = acc[topic]
+    local thoughts = payload["thoughts_to_remember"]
+    if type(thoughts) == "string" then
+      table.insert(entry["thoughts_to_remember"], thoughts)
+    elseif type(thoughts) == "table" then
+      for _, v in ipairs(thoughts) do
+        if type(v) == "string" and v ~= "" then
+          table.insert(entry["thoughts_to_remember"], v)
+        end
+      end
+    end
+    local pitfalls = payload["pitfalls"]
+    if type(pitfalls) == "string" then
+      table.insert(entry["pitfalls"], pitfalls)
+    elseif type(pitfalls) == "table" then
+      for _, v in ipairs(pitfalls) do
+        if type(v) == "string" and v ~= "" then
+          table.insert(entry["pitfalls"], v)
+        end
+      end
+    end
+  end
+end
+
+redis.call("SET", key, cjson.encode(acc), "EX", ttl)
+return 1
+"""
 
 def _format_guide_summary(acc: dict[str, dict[str, list[str]]]) -> str:
     lines: list[str] = ["Guide mode summary:"]
@@ -61,14 +77,21 @@ def guide_mode_enable(
     problem_name: str,
     problem_url: str,
 ) -> None:
-    _GUIDE_ENABLED[session_id] = True
-    _GUIDE_META[session_id] = {
-        "user_id": user_id,
+    enabled_key = rkey("guide:enabled", user_id, session_id)
+    meta_key = rkey("guide:meta", user_id, session_id)
+    topics_key = rkey("guide:topics", user_id, session_id)
+
+    r.set(enabled_key, "1", ex=GUIDE_TTL_SECONDS)
+    set_json(meta_key, {
         "problem_no": problem_no,
         "problem_name": problem_name,
         "problem_url": problem_url,
-    }
-    _GUIDE_ACCUM.setdefault(session_id, {})
+    }, ex=GUIDE_TTL_SECONDS)
+
+    if not r.exists(topics_key):
+        set_json(topics_key, {}, ex=GUIDE_TTL_SECONDS)
+    else:
+        r.expire(topics_key, GUIDE_TTL_SECONDS)
 
 def guide_mode_disable(
     session_id: str,
@@ -77,9 +100,13 @@ def guide_mode_disable(
     problem_name: str,
     problem_url: str,
 ) -> None:
-    _GUIDE_ENABLED[session_id] = False
-    acc = _GUIDE_ACCUM.get(session_id) or {}
+    enabled_key = rkey("guide:enabled", user_id, session_id)
+    meta_key = rkey("guide:meta", user_id, session_id)
+    topics_key = rkey("guide:topics", user_id, session_id)
+
+    acc = get_json(topics_key) or {}
     if not acc:
+        r.delete(enabled_key, meta_key, topics_key)
         return
     buffer_guide_write(
         {
@@ -93,7 +120,7 @@ def guide_mode_disable(
         }
     )
     flush_guide_buffer()
-    _GUIDE_ACCUM[session_id] = {}
+    r.delete(enabled_key, meta_key, topics_key)
 def get_token_usage(response) -> dict:
     usage = getattr(response, "usage", None)
     if not usage:
@@ -208,7 +235,7 @@ def requestingCodeCheck(
         return str(e)
 
 
-def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, session_id: str | None = None):
+def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, session_id: str | None = None, user_id: str | None = None):
     problem = problem
     topics = topics
     fullCode = code
@@ -335,11 +362,12 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
             data["nudgediscarded"] = nudges
 
         data["isSimilarNudges"] = isSimilarNudges
-        if session_id and _GUIDE_ENABLED.get(session_id):
-            _accumulate_topics(
-                _GUIDE_ACCUM.setdefault(session_id, {}),
-                data.get("topics") or {},
-            )
+        if session_id and user_id:
+            enabled_key = rkey("guide:enabled", user_id, session_id)
+            if r.get(enabled_key):
+                topics_key = rkey("guide:topics", user_id, session_id)
+                incoming = data.get("topics") or {}
+                r.eval(_LUA_MERGE_TOPICS, 1, topics_key, json.dumps(incoming), str(GUIDE_TTL_SECONDS))
         #print("LLM data: ", data)
         
 
