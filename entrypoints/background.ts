@@ -311,6 +311,9 @@ async function handleCheckCode(payload: {
   >;
   code: string;
   action: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
 }) {
   console.debug("VibeTutor: check-code payload received");
   const data = await forwardCodeForCheckMode(
@@ -318,6 +321,9 @@ async function handleCheckCode(payload: {
     payload.topics,
     payload.code,
     payload.action ?? "check-code",
+    payload.problem_no,
+    payload.problem_name,
+    payload.problem_url,
   );
   //console.log("this is the data received: ", data.reply);
   return data.reply;
@@ -414,6 +420,9 @@ async function forwardCodeForCheckMode(
   >,
   code: string,
   action: string,
+  problem_no: number | null,
+  problem_name: string,
+  problem_url: string,
 ) {
   try {
     const auth = await getAuthState();
@@ -426,7 +435,15 @@ async function forwardCodeForCheckMode(
     const response = await fetch("http://127.0.0.1:8000/api/llm", {
       method: "POST",
       headers,
-      body: JSON.stringify({ sessionId, topics, code, action }),
+      body: JSON.stringify({
+        sessionId,
+        topics,
+        code,
+        action,
+        problem_no,
+        problem_name,
+        problem_url,
+      }),
     });
     const text = await response.text();
     let data: any = null;
@@ -603,6 +620,9 @@ function isCheckCodePayload(payload: unknown): payload is {
   >;
   code: string;
   action?: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
 } {
   if (typeof payload != "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
@@ -611,6 +631,9 @@ function isCheckCodePayload(payload: unknown): payload is {
   if (typeof p.topics !== "object" || p.topics === null) return false;
   if (typeof p.code !== "string") return false;
   if (typeof p.action !== "string") return false;
+  if (!("problem_no" in p) || (p.problem_no !== null && typeof p.problem_no !== "number")) return false;
+  if (typeof p.problem_name !== "string") return false;
+  if (typeof p.problem_url !== "string") return false;
   return Object.values(p.topics as Record<string, unknown>).every(
     isTopicBucket,
   );

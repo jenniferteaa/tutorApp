@@ -6,7 +6,7 @@ from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
-from services.dbWriter import write_checkmode_result
+from services.dbWriter import write_checkmode_result_v2
 
 load_dotenv()
 
@@ -32,6 +32,9 @@ def requestingCodeCheck(
     code: str,
     session_id: str | None = None,
     user_id: str | None = None,
+    problem_no: int | None = None,
+    problem_name: str | None = None,
+    problem_url: str | None = None,
 ):
 
     system_prompt = """
@@ -88,13 +91,28 @@ def requestingCodeCheck(
                 data["topics"] = deduped
         data["isSimilar"] = isSimilar
 
-        if session_id and user_id:
-            write_checkmode_result(
-                user_id,
-                session_id,
-                data.get("topics") or {},
-                data.get("resp") or "",
+        if session_id and user_id and problem_no and problem_name and problem_url:
+            write_checkmode_result_v2(
+                user_id=user_id,
+                session_id=session_id,
+                problem_no=problem_no,
+                problem_name=problem_name,
+                problem_url=problem_url,
+                topics=data.get("topics") or {},
+                response_text=data.get("resp") or "",
             )
+        else:
+            return{
+                "success": False,
+                "error": "Missing required metadata for persistence",
+                "details": {
+                    "session_id": bool(session_id),
+                    "user_id": bool(user_id),
+                    "problem_no": bool(problem_no),
+                    "problem_name": bool(problem_name),
+                    "problem_url": bool(problem_url),
+                },
+            }
 
         return data
 
@@ -104,7 +122,7 @@ def requestingCodeCheck(
         return str(e)
 
 
-def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode):
+def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, user_id: str | None = None):
     problem = problem
     topics = topics
     fullCode = code

@@ -844,6 +844,13 @@ function getProblemTitleFromPage(): string {
   );
 }
 
+function getProblemNumberFromTitle(title: string): number | null {
+  const match = title.match(/^\s*(\d+)/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
 function getSessionStorageKey(userId: string, problemName: string): string {
   return `${SESSION_STORAGE_KEY}:${encodeURIComponent(
     userId,
@@ -2259,6 +2266,11 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
         topics: currentTutorSession?.topics,
         code: writtenCode, // <-- raw string
         action: "check-code",
+        problem_no: getProblemNumberFromTitle(
+          currentTutorSession?.problem ?? "",
+        ),
+        problem_name: currentTutorSession?.problem ?? "",
+        problem_url: currentTutorSession?.problemUrl ?? "",
       },
     });
     const response_llm = response?.resp;

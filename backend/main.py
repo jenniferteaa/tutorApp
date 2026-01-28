@@ -11,6 +11,9 @@ class CodeRequest(BaseModel):
     topics: dict[str, TopicNotes]
     code: str
     action: str
+    problem_no: int | None = None
+    problem_name: str = ""
+    problem_url: str = ""
 
 class GuideModeRequest(BaseModel):
     sessionId: str
@@ -47,7 +50,15 @@ def llm(req: CodeRequest, authorization: str | None = Header(default=None)):
             user_id = verify_backend_token(token)
             if not user_id:
                 return {"success": False, "error": "Unauthorized"}
-            response = requestingCodeCheck(req.topics, req.code, req.sessionId, user_id)
+            response = requestingCodeCheck(
+                req.topics,
+                req.code,
+                req.sessionId,
+                user_id,
+                req.problem_no,
+                req.problem_name,
+                req.problem_url,
+            )
             return {"success": True, "reply": response}
         case _:
             return {"success": False, "error": "Unknown request type"}
