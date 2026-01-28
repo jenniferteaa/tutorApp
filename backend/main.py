@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Header
 from pydantic import BaseModel
-from services.llmRequests import requestingCodeCheck, answerAskanything, guideModeAssist, requestSummarization
+from services.llmRequests import requestingCodeCheck, answerAskanything, guideModeAssist, requestSummarization, guide_mode_enable, guide_mode_disable
 from models import RollingStateGuideMode, TopicNotes
 from services.authService import login_with_supabase, verify_backend_token
 
@@ -23,6 +23,12 @@ class GuideModeRequest(BaseModel):
     code: str
     focusLine: str
     rollingStateGuideMode: RollingStateGuideMode
+
+class GuideModeStatusRequest(BaseModel):
+    sessionId: str
+    problem_no: int | None = None #change - check this to see if can make it mandatory
+    problem_name: str
+    problem_url: str
 
 class AskPayload(BaseModel):
     sessionId: str
@@ -82,11 +88,33 @@ def llmGuideMode(req: GuideModeRequest):
     match(req.action):
         case "guide-mode":
             response = guideModeAssist(
-                req.problem, req.topics, req.code, req.focusLine, req.rollingStateGuideMode
+                req.problem, req.topics, req.code, req.focusLine, req.rollingStateGuideMode, req.sessionId
             )
             return {"success": True, "reply": response}
         case _:
             return {"success": False, "error": "Unknown guide mode action"}
+
+@app.post("/api/guide/enable")
+def guide_enable(req: GuideModeStatusRequest, authorization: str | None = Header(default=None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    user_id = verify_backend_token(token)
+    if not user_id:
+        return {"success": False, "error": "Unauthorized"}
+    guide_mode_enable(req.sessionId, user_id, req.problem_no, req.problem_name, req.problem_url)
+    return {"success": True}
+
+@app.post("/api/guide/disable")
+def guide_disable(req: GuideModeStatusRequest, authorization: str | None = Header(default=None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    user_id = verify_backend_token(token)
+    if not user_id:
+        return {"success": False, "error": "Unauthorized"}
+    guide_mode_disable(req.sessionId, user_id, req.problem_no, req.problem_name, req.problem_url)
+    return {"success": True}
 
 @app.post("/api/auth/login")
 def auth_login(req: LoginPayload):

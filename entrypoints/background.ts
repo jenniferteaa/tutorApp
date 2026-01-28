@@ -133,6 +133,12 @@ async function handleMessage(message: VibeTutorMessage) {
       }
       return handleGuideMode(message.payload);
     }
+    case "guide-mode-status": {
+      if (!isGuideModeStatusPayload(message.payload)) {
+        return { success: false, error: "Invalid guide status payload" };
+      }
+      return handleGuideModeStatus(message.payload);
+    }
     case "check-code": {
       if (!isCheckCodePayload(message.payload)) {
         return { success: false, error: "Invalid check code payload" };
@@ -250,6 +256,46 @@ async function handleGuideMode(payload: {
   );
 }
 
+async function handleGuideModeStatus(payload: {
+  enabled: boolean;
+  sessionId: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
+}) {
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, error: "Unauthorized" };
+  }
+  return forwardGuideModeStatus(payload, auth.jwt);
+}
+
+async function forwardGuideModeStatus(
+  payload: {
+    enabled: boolean;
+    sessionId: string;
+    problem_no: number | null;
+    problem_name: string;
+    problem_url: string;
+  },
+  token: string,
+) {
+  const endpoint = payload.enabled ? "/api/guide/enable" : "/api/guide/disable";
+  const response = await fetch(`${BACKEND_BASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    return { success: false, error: text || "Guide mode status failed" };
+  }
+  return { success: true };
+}
+
 async function forwardCodeToBackendGuideMode(
   sessionId: string,
   action: string,
@@ -263,9 +309,16 @@ async function forwardCodeToBackendGuideMode(
   rollingStateGuideMode: RollingStateGuideMode,
 ) {
   try {
+    const auth = await getAuthState();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (auth?.jwt) {
+      headers.Authorization = `Bearer ${auth.jwt}`;
+    }
     const response = await fetch("http://127.0.0.1:8000/api/llm/guide", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         sessionId,
         action,
@@ -637,6 +690,23 @@ function isCheckCodePayload(payload: unknown): payload is {
   return Object.values(p.topics as Record<string, unknown>).every(
     isTopicBucket,
   );
+}
+
+function isGuideModeStatusPayload(payload: unknown): payload is {
+  enabled: boolean;
+  sessionId: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
+} {
+  if (typeof payload !== "object" || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.enabled !== "boolean") return false;
+  if (typeof p.sessionId !== "string") return false;
+  if (!("problem_no" in p) || (p.problem_no !== null && typeof p.problem_no !== "number")) return false;
+  if (typeof p.problem_name !== "string") return false;
+  if (typeof p.problem_url !== "string") return false;
+  return true;
 }
 
 function isSolutionPayload(payload: unknown): payload is { sessionId: string } {

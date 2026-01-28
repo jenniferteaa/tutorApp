@@ -6,12 +6,94 @@ from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
-from services.dbWriter import write_checkmode_result_v2
+from services.dbWriter import write_checkmode_result_v2, buffer_guide_write, flush_guide_buffer, is_db_write_in_flight
 
 load_dotenv()
 
 client = OpenAI()
 # implement the code here to validate the session Id
+
+_GUIDE_ENABLED: dict[str, bool] = {}
+_GUIDE_ACCUM: dict[str, dict[str, dict[str, list[str]]]] = {}
+_GUIDE_META: dict[str, dict[str, object]] = {}
+
+def _accumulate_topics(
+    acc: dict[str, dict[str, list[str]]],
+    incoming: dict[str, dict[str, list[str]]],
+) -> None:
+    for topic_name, payload in (incoming or {}).items():
+        if not isinstance(payload, dict):
+            continue
+        entry = acc.setdefault(
+            topic_name,
+            {"thoughts_to_remember": [], "pitfalls": []},
+        )
+        thoughts = payload.get("thoughts_to_remember") or []
+        pitfalls = payload.get("pitfalls") or []
+
+        if isinstance(thoughts, list):
+            entry["thoughts_to_remember"].extend(
+                [t for t in thoughts if isinstance(t, str) and t.strip()]
+            )
+        elif isinstance(thoughts, str) and thoughts.strip():
+            entry["thoughts_to_remember"].append(thoughts.strip())
+
+        if isinstance(pitfalls, list):
+            entry["pitfalls"].extend(
+                [p for p in pitfalls if isinstance(p, str) and p.strip()]
+            )
+        elif isinstance(pitfalls, str) and pitfalls.strip():
+            entry["pitfalls"].append(pitfalls.strip())
+
+def _format_guide_summary(acc: dict[str, dict[str, list[str]]]) -> str:
+    lines: list[str] = ["Guide mode summary:"]
+    for topic_name, payload in acc.items():
+        thoughts = payload.get("thoughts_to_remember") or []
+        pitfalls = payload.get("pitfalls") or []
+        total = len(thoughts) + len(pitfalls)
+        lines.append(f"- {topic_name}: {total} notes")
+    return "\n".join(lines)
+
+def guide_mode_enable(
+    session_id: str,
+    user_id: str,
+    problem_no: int | None,
+    problem_name: str,
+    problem_url: str,
+) -> None:
+    _GUIDE_ENABLED[session_id] = True
+    _GUIDE_META[session_id] = {
+        "user_id": user_id,
+        "problem_no": problem_no,
+        "problem_name": problem_name,
+        "problem_url": problem_url,
+    }
+    _GUIDE_ACCUM.setdefault(session_id, {})
+
+def guide_mode_disable(
+    session_id: str,
+    user_id: str,
+    problem_no: int | None,
+    problem_name: str,
+    problem_url: str,
+) -> None:
+    _GUIDE_ENABLED[session_id] = False
+    acc = _GUIDE_ACCUM.get(session_id) or {}
+    if not acc:
+        return
+    buffer_guide_write(
+        {
+            "user_id": user_id,
+            "session_id": session_id,
+            "problem_no": problem_no,
+            "problem_name": problem_name,
+            "problem_url": problem_url,
+            "topics": acc,
+            "response_text": _format_guide_summary(acc),
+        }
+    )
+    flush_guide_buffer()
+    _GUIDE_ACCUM[session_id] = {}
 def get_token_usage(response) -> dict:
     usage = getattr(response, "usage", None)
     if not usage:
@@ -92,15 +174,19 @@ def requestingCodeCheck(
         data["isSimilar"] = isSimilar
 
         if session_id and user_id and problem_no and problem_name and problem_url:
-            write_checkmode_result_v2(
-                user_id=user_id,
-                session_id=session_id,
-                problem_no=problem_no,
-                problem_name=problem_name,
-                problem_url=problem_url,
-                topics=data.get("topics") or {},
-                response_text=data.get("resp") or "",
-            )
+            payload = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "problem_no": problem_no,
+                "problem_name": problem_name,
+                "problem_url": problem_url,
+                "topics": data.get("topics") or {},
+                "response_text": data.get("resp") or "",
+            }
+            if is_db_write_in_flight():
+                buffer_guide_write(payload)
+            else:
+                write_checkmode_result_v2(**payload)
         else:
             return{
                 "success": False,
@@ -122,7 +208,7 @@ def requestingCodeCheck(
         return str(e)
 
 
-def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, user_id: str | None = None):
+def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, session_id: str | None = None):
     problem = problem
     topics = topics
     fullCode = code
@@ -249,6 +335,11 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
             data["nudgediscarded"] = nudges
 
         data["isSimilarNudges"] = isSimilarNudges
+        if session_id and _GUIDE_ENABLED.get(session_id):
+            _accumulate_topics(
+                _GUIDE_ACCUM.setdefault(session_id, {}),
+                data.get("topics") or {},
+            )
         #print("LLM data: ", data)
         
 

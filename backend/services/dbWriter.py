@@ -11,6 +11,10 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL","")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY","")
 
+_GUIDE_BUFFER: list[dict[str, Any]] = []
+_DB_WRITE_IN_FLIGHT = False
+_RETRY_SCHEDULED = False
+
 
 @dataclass(frozen=True)
 class SupabaseCfg:
@@ -137,7 +141,6 @@ def write_checkmode_result_v2(
             on_conflict="note_id,topic_id",
         )
 
-
         # store per-topic content for querying
         _upsert_one(
             cfg,
@@ -150,3 +153,31 @@ def write_checkmode_result_v2(
             },
             on_conflict="note_id,topic_id",
         )
+
+def is_db_write_in_flight() -> bool:
+    return _DB_WRITE_IN_FLIGHT
+
+def buffer_guide_write(payload: dict[str, Any]) -> None:
+    _GUIDE_BUFFER.append(payload)
+    flush_guide_buffer()
+
+def flush_guide_buffer() -> None:
+    global _DB_WRITE_IN_FLIGHT, _RETRY_SCHEDULED
+    if _DB_WRITE_IN_FLIGHT:
+        if not _RETRY_SCHEDULED:
+            _RETRY_SCHEDULED = True
+            import threading
+            threading.Timer(0.5, _retry_flush).start()
+        return
+    while _GUIDE_BUFFER:
+        payload = _GUIDE_BUFFER.pop(0)
+        _DB_WRITE_IN_FLIGHT = True
+        try:
+            write_checkmode_result_v2(**payload)
+        finally:
+            _DB_WRITE_IN_FLIGHT = False
+
+def _retry_flush() -> None:
+    global _RETRY_SCHEDULED
+    _RETRY_SCHEDULED = False
+    flush_guide_buffer()

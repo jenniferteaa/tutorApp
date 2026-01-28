@@ -865,7 +865,9 @@ function getRollingTopicsFromPage(): Record<
   const topicsList = Array.from(topicElements)
     .map((el) => el.getAttribute("href"))
     .filter((href): href is string => !!href)
-    .map((href) => href.replace("/tag/", "").replace("/", "").replace("-", "_"));
+    .map((href) =>
+      href.replace("/tag/", "").replace("/", "").replace("-", "_"),
+    );
 
   return Object.fromEntries(
     Array.from(new Set(topicsList)).map((t) => [
@@ -927,7 +929,9 @@ async function openTutorPanel() {
   if (currentTutorSession?.userId) {
     showPanelLoading();
     try {
-      await saveSessionState(currentTutorSession.element ?? null, { force: true });
+      await saveSessionState(currentTutorSession.element ?? null, {
+        force: true,
+      });
     } finally {
       hidePanelLoading();
     }
@@ -1241,13 +1245,19 @@ function applyStoredSessionToPanel(
       : null;
 }
 
-function resetPanelForUser(panel: HTMLElement, userId: string, problemName: string) {
+function resetPanelForUser(
+  panel: HTMLElement,
+  userId: string,
+  problemName: string,
+) {
   resetGuideState();
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (contentArea) {
     contentArea.innerHTML = "";
   }
-  const prompt = panel.querySelector<HTMLTextAreaElement>(".tutor-panel-prompt");
+  const prompt = panel.querySelector<HTMLTextAreaElement>(
+    ".tutor-panel-prompt",
+  );
   if (prompt) {
     prompt.value = "";
   }
@@ -1260,10 +1270,7 @@ async function hydrateStoredSessionCache() {
     pendingStoredSession = null;
     return;
   }
-  const stored = await loadSessionState(
-    auth.userId,
-    getProblemTitleFromPage(),
-  );
+  const stored = await loadSessionState(auth.userId, getProblemTitleFromPage());
   if (!stored) {
     pendingStoredSession = null;
     return;
@@ -1422,7 +1429,8 @@ function ensureAuthPrompt(panel: HTMLElement) {
     });
     if (resp?.userId && resp?.jwt) {
       const currentUserId = currentTutorSession?.userId ?? "";
-      const problemName = currentTutorSession?.problem ?? getProblemTitleFromPage();
+      const problemName =
+        currentTutorSession?.problem ?? getProblemTitleFromPage();
 
       if (currentUserId && currentUserId === resp.userId) {
         sessionRestorePending = false;
@@ -2342,12 +2350,26 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       !currentTutorSession.guideModeEnabled;
 
     const guideModeButton = panel.querySelector<HTMLElement>(".btn-guide-mode");
+    if (currentTutorSession.userId) {
+      const problemName = currentTutorSession.problem;
+      const problemNo = getProblemNumberFromTitle(problemName);
+      void browser.runtime.sendMessage({
+        action: "guide-mode-status",
+        payload: {
+          enabled: currentTutorSession.guideModeEnabled,
+          sessionId: currentTutorSession.sessionId,
+          problem_no: problemNo,
+          problem_name: problemName,
+          problem_url: currentTutorSession.problemUrl,
+        },
+      });
+    }
     setPanelControlsDisabledGuide(panel, true);
     panel.classList.add("guidemode-active");
 
     if (currentTutorSession.guideModeEnabled) {
       //content_area?.classList.add("guide_start");
-      guideModeButton?.classList.add("is-loading");
+      guideModeButton?.classList.add("is-loading"); // #change this to is-active
       guideMessageCount = 0;
       lastGuideMessageEl = null;
       attachGuideListeners();
