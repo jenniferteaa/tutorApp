@@ -1,4 +1,4 @@
-var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.browser?.runtime?.id?globalThis.browser:globalThis.chrome,Qe={matches:["https://leetcode.com/problems/*"],main(){console.log("🎯 StickyNoteAI v2.2 CSS FIXED + MENU POSITIONING - Loading..."),document.readyState==="loading"?document.addEventListener("DOMContentLoaded",()=>{ke()}):ke()}};let p=null,T=!1,I=!1,R={x:0,y:0},S={x:0,y:0},Me,Te,Z=[];function ke(){console.log("The widget is being loaded to the page"),Je(),ft(),dt(),mt(),at(),_e().then(()=>{w?.panelOpen&&te()}),window.addEventListener("beforeunload",()=>{k(o?.element??null)})}function Je(){const e=document.getElementById("tutor-widget");e&&e.remove(),p=document.createElement("div"),p.id="tutor-widget";let t;try{t=m.runtime.getURL("logo.png"),Me=t}catch(i){console.warn("There is an error loading the logo: ",i),t=`chrome-extension://${m.runtime.id||chrome.runtime.id}/logo.png`,Me=t}console.log("StickyNoteAI: Image URLs:",{logo:t}),console.log("StickyNoteAI: Extension ID:",m.runtime.id),console.log("StickyNoteAI: Chrome runtime ID:",chrome.runtime.id),p.innerHTML=`
+var content=(function(){"use strict";function Pt(e){return e}const h=globalThis.browser?.runtime?.id?globalThis.browser:globalThis.chrome,Je={matches:["https://leetcode.com/problems/*"],main(){console.log("🎯 StickyNoteAI v2.2 CSS FIXED + MENU POSITIONING - Loading..."),document.readyState==="loading"?document.addEventListener("DOMContentLoaded",()=>{Te()}):Te()}};let m=null,A=!1,M=!1,F={x:0,y:0},E={x:0,y:0},Ie,Me,ee=[];function Te(){console.log("The widget is being loaded to the page"),Ze(),xt(),gt(),bt(),dt(),Fe().then(()=>{v?.panelOpen&&ne()}),window.addEventListener("beforeunload",()=>{C(i?.element??null)})}function Ze(){const e=document.getElementById("tutor-widget");e&&e.remove(),m=document.createElement("div"),m.id="tutor-widget";let t;try{t=h.runtime.getURL("logo.png"),Ie=t}catch(o){console.warn("There is an error loading the logo: ",o),t=`chrome-extension://${h.runtime.id||chrome.runtime.id}/logo.png`,Ie=t}console.log("StickyNoteAI: Image URLs:",{logo:t}),console.log("StickyNoteAI: Extension ID:",h.runtime.id),console.log("StickyNoteAI: Chrome runtime ID:",chrome.runtime.id),m.innerHTML=`
   <div class="widget-main-button" id="main-button">
   <img src="${t}" alt="Widget" style="width: 24px; height: 24px;" id="logo-image">
   </div>
@@ -47,21 +47,20 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 .tutor-panel{
   position: fixed;
   width: 450px;
-  height: 400px;
+  height: 350px;
 
-  /* Sticky note look */
-  background: rgba(255, 251, 147, 0.98);
-  border-radius: 4px;
-  border: 1px solid rgba(0,0,0,0.10);
-
-/*  box-shadow:
+  background: #F9FAFB;
+  border-radius: 13px;
+  border: none;
+  box-shadow:
     0 14px 30px rgba(0,0,0,0.18),
-    0 2px 6px rgba(0,0,0,0.10); */
+    0 2px 6px rgba(0,0,0,0.10);
 
   z-index: 999997;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Inconsolata', ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
 
-  transform: scale(0.9) rotate(0deg);
+  transform: none;
   opacity: 0;
 
   transition:
@@ -85,13 +84,19 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  background: rgba(239, 230, 188, 0.65);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  min-height: 44px;
+  padding: 8px 12px;
+  background: #F9FAFB;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.21);
   cursor: grab;
+  justify-content: flex-end;
+}
+.tutor-panel-shellbar:hover{
+background: rgba(0, 0, 0, 0.03);
 }
 
 .tutor-panel-shellbar:active{
+  background: rgba(0, 0, 0, 0.03);
   cursor: grabbing;
 }
 
@@ -111,7 +116,7 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 
 .tutor-panel.open {
   opacity: 1;
-  transform: scale(0.9) rotate(0deg);
+  transform: none;
 }
 
 .tutor-panel-loading{
@@ -160,11 +165,9 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-
   padding: 10px 10px;
-
-  background: rgba(239, 230, 188, 0.75);
-  border-bottom: 1px solid rgba(0,0,0,0.10);
+  background: transparent;
+  border-bottom: none;
 }
 
 /* Close button */
@@ -174,7 +177,7 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   border: none;
   border-radius: 4px;
 
-  background: rgba(231, 218, 225, 0.45);
+  /* background: rgba(231, 218, 225, 0.45); */
   color: rgba(0,0,0,0.85);
   font-size: 18px;
   line-height: 1;
@@ -186,17 +189,18 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 }
 .tutor-panel-close:hover{
   transform: scale(1.06);
-  background: rgba(237, 107, 172, 0.55);
+  background: rgba(205, 201, 203, 0.55);
 }
 
 /* Actions row */
 .tutor-panel-actions{
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 
   /* IMPORTANT: don’t let this become a giant green slab */
   background: transparent;
+  /* background: rgba(205, 201, 203, 0.55); */
   padding: 0;
   margin: 0;
 }
@@ -204,47 +208,33 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 /* Buttons */
 .btn-guide-mode,
 .btn-help-mode,
-.btn-timer{
-  border: 1px solid rgba(0,0,0,0.12);
-  background: rgba(229, 233, 226, 0.92);
-  color: rgba(0,0,0,0.85);
+.btn-timer,
+.btn-gotToWorkspace{
+  border: none;
+  background: rgba(205, 201, 203, 0.40);
+  color: rgba(0,0,0,0.9);
 
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: 8px;
 
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+  transition: background 120ms ease, color 120ms ease;
 }
 .btn-guide-mode:not(:disabled):hover,
-.btn-timer:not(:disabled):hover{
-  transform: translateY(-1px);
-  filter: brightness(0.98);
-  
+.btn-help-mode:not(:disabled):hover,
+.btn-timer:not(:disabled):hover,
+.btn-gotToWorkspace:not(:disabled):hover{
+  background: rgba(0, 0, 0, 0.06);
 }
 .btn-guide-mode:active,
 .btn-help-mode:active,
-.btn-timer:active{
-  transform: translateY(0px);
-}
-
-.btn-help-mode:not(:disabled):hover
-{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
-}
-
-.btn-guide-mode:not(:disabled):hover
-{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
+.btn-timer:active,
+.btn-gotToWorkspace:active{
+  background: rgba(0, 0, 0, 0.1);
 }
 
 
@@ -255,19 +245,13 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 }
 
 .btn-guide-mode.is-loading{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
+  background: rgba(0, 0, 0, 0.08);
   animation: hoverPulse 1.2s ease-in-out infinite;
 }
 
 
 .btn-help-mode.is-loading{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
+  background: rgba(0, 0, 0, 0.08);
   animation: hoverPulse 1.2s ease-in-out infinite;
   }
 
@@ -318,7 +302,7 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   padding: 12px;
   overflow-x: hidden;
 
-  background: rgba(255, 255, 255, 0.35);
+  background: transparent;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -342,6 +326,36 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   flex-direction: column;
   align-items: center;
   text-align: center;
+}
+.tutor-panel-auth .auth-error{
+  display: none;
+  width: 100%;
+  margin: 0 0 8px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+ /* background: rgba(244, 67, 54, 0.12); */
+  color: rgba(195, 49, 38, 0.95);
+  font-weight: 700;
+  font-size: 12px;
+}
+.tutor-panel-auth .auth-actions{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tutor-panel-auth .auth-name-row{
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.tutor-panel-auth .auth-name-row input{
+  flex: 1;
+  min-width: 0;
+}
+.tutor-panel-auth .auth-sep{
+  font-weight: 700;
+  color: rgba(0,0,0,0.45);
+  user-select: none;
 }
 .tutor-panel-auth h4{
   margin: 0 0 8px 0;
@@ -379,31 +393,28 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 
 .tutor-panel-message{
   margin: 0;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 8px;
+  padding: 10px 20px 10px 10px;
+  /* background: rgba(255, 255, 255, 0.75); */
+ /* border: 1px solid rgba(0,0,0,0.08); */
+  border-radius: 4px;
   color: rgba(0,0,0,0.86);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.6;
 }
 
 .tutor-panel-message--assistant{
   background: transparent;
   border-radius: 7px;
   border: none;
-  padding: 10px 8px;
   align-self: flex-start;
   margin-top: 14px;
-  padding-top: 18px 20px;
-
 }
 
 .tutor-panel-message--guideAssistant{
   border: none;
-  background: rgba(15, 23, 42, 0.06);
+  /*background: rgba(15, 23, 42, 0.06); */
+  background: transparent;
   border-radius: 7px;
-  padding: 10px 20px;
   align-self: flex-start;
 }
 
@@ -415,24 +426,26 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 
 /* Border + GAP live here */
 .guide-wrapper.guide-start{
-  border-top: 2px solid rgba(0,0,0,0.45);
+  border-top: 1px solid rgba(0,0,0,0.08);
   margin-top: 14px;
   padding-top: 14px;
 }
 
 .guide-wrapper.guide-end{
-  border-bottom: 2px solid rgba(0,0,0,0.45);
+  /* border-bottom: 1px solid rgba(0,0,0,0.08); */
   margin-bottom: 14px;
   padding-bottom: 14px;
 }
 
 .tutor-panel-message--checkAssistant{
   border: none;
-  background: rgba(15, 23, 42, 0.06);
+  /* background: rgba(15, 23, 42, 0.06); */
+  /* background: rgba(0, 0, 0, 0.04); */
+  background: transparent;
   border-radius: 7px;
-  padding: 10px 20px;
   align-self: flex-start;
 }
+
 .check-wrapper{
   align-self: flex-start;
   display: flex;
@@ -440,18 +453,19 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 }
 
 .check-wrapper.check-start{
-  border-top: 2px solid rgba(0,0,0,0.45);
+  border-top: 1px solid rgba(0,0,0,0.08);
   margin-top: 14px;
   padding-top: 14px;
 }
 
 .check-wrapper.check-end{
-  border-bottom: 2px solid rgba(0,0,0,0.45);
+  /* border-bottom: 1px solid rgba(0,0,0,0.08); */
   margin-bottom: 14px;
   padding-bottom: 14px;
 }
 .tutor-panel-message--checkAssistant{
-  background: rgba(0, 0, 0, 0.06); /* a bit warmer/neutral */
+  /* background: rgba(0, 0, 0, 0.06); */ /* a bit warmer/neutral */
+ /* background: rgba(0, 0, 0, 0.04); */
 }
 
 
@@ -465,13 +479,14 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
 
 .tutor-panel-message--user{
   align-self: flex-end;
+  padding: 10px 10px;
   max-width: 75%;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(205, 201, 203, 0.55);
 }
 
 .tutor-panel-message p{
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
 }
 .tutor-panel-message p:last-child{
   margin-bottom: 0;
@@ -489,6 +504,9 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   background: rgba(0,0,0,0.06);
   padding: 1px 4px;
   border-radius: 4px;
+}
+.tutor-panel-message strong{
+  font-weight: 800;
 }
 .tutor-panel-message pre{
   background: rgba(15, 23, 42, 0.06);
@@ -510,60 +528,85 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
   align-items: flex-end;
   gap: 10px;
 
-  padding: 10px;
+  padding: 10px 18px;
 
-  background: rgba(228, 235, 192, 0.92);
-  border-top: 1px solid rgba(0,0,0,0.10);
+  background: transparent;
+  border-top: none;
 }
 
 /* Textarea */
 .tutor-panel-prompt{
   flex: 1;
   min-height: 44px;
+  height: 44px;
   max-height: 110px;
   resize: none;
 
-  padding: 10px 12px;
+  padding: 12px 14px;
+  box-sizing: border-box;
 
   border-radius: 4px;
-  border: 1px solid rgba(0,0,0,0.14);
+  /* border: 1px solid rgba(0,0,0,0.16); */
   outline: none;
 
-  background: rgba(255, 255, 255, 0.92);
-  font-size: 14px;
-  line-height: 1;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 10px;
+  line-height: 1.2;
 }
-.tutor-panel-prompt:focus{
-  border-color: rgba(0,0,0,0.22);
-  box-shadow: 0 0 0 3px rgba(146, 229, 83, 0.25);
-}
+/* .tutor-panel-prompt:focus{
+  border-color: rgba(0,0,0,0.3);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+} */
 
 /* Send */
 .tutor-panel-send{
-  border: 1px solid rgba(0,0,0,0.12);
-  background: rgba(4, 5, 4, 0.92);
-  color: rgba(255, 255, 255, 0.85);
+  border: none;
+  background: rgba(37, 35, 35, 0.9);
+  color: rgba(255, 255, 255, 0.95);
 
   border-radius: 4px;
-  padding: 10px 14px;
+  height: 44px;
+  padding: 0 18px;
 
   font-weight: 800;
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
   white-space: nowrap;
 }
-.tutor-panel-send:hover{
-  transform: translateY(-1px);
-  filter: brightness(0.98);
-}
+/*
 .tutor-panel-send:active{
   transform: translateY(0px);
-}`,document.head.appendChild(n),document.body.appendChild(p);const r=document.getElementById("logo-image");r&&(r.addEventListener("load",()=>{console.log("✅ image loaded successfully")}),r.addEventListener("error",()=>{console.error("❌ Failed to load logo image:",t),r.style.display="none"})),Ze()}function Ze(){const e=document.getElementById("main-button");if(!e)return;let t=0,n={x:0,y:0},r=!1,i=!1;function s(a,u){if(!p)return{x:a,y:u};const h={width:50,height:50},g=window.innerWidth,x=window.innerHeight,f=10;let v=Math.max(f,a);v=Math.min(g-h.width-f,v);let E=Math.max(f,u);return E=Math.min(x-h.height-f,E),{x:v,y:E}}function l(a,u){if(!p)return{x:a,y:u};const h={width:50,height:50},g=window.innerWidth,x=window.innerHeight,f=20,v=a,E=g-(a+h.width),K=u,Q=x-(u+h.height),J=Math.min(v,E,K,Q);let Ie=a,Ee=u;return(a<0||a+h.width>g||u<0||u+h.height>x)&&(J===v?Ie=f:J===E?Ie=g-h.width-f:J===K?Ee=f:J===Q&&(Ee=x-h.height-f)),{x:Ie,y:Ee}}e.addEventListener("mousedown",a=>{a.preventDefault(),t=Date.now(),n={x:a.clientX,y:a.clientY},r=!1;const u=p.getBoundingClientRect();R.x=a.clientX-u.left,R.y=a.clientY-u.top,e.classList.add("dragging"),document.addEventListener("mousemove",d),document.addEventListener("mouseup",c)}),e.addEventListener("click",a=>{if(i){i=!1;return}!T&&!r&&(a.preventDefault(),a.stopPropagation(),I?De():te())});function d(a){const u=Date.now()-t,h=Math.sqrt(Math.pow(a.clientX-n.x,2)+Math.pow(a.clientY-n.y,2));if(!T&&(h>3||u>100)&&(T=!0,r=!0,document.body.style.cursor="grabbing"),T){const g=a.clientX-R.x,x=a.clientY-R.y,f=s(g,x);p.style.transform=`translate(${f.x}px, ${f.y}px)`,p.style.left="0",p.style.top="0",S={x:f.x,y:f.y}}}function c(){if(document.removeEventListener("mousemove",d),document.removeEventListener("mouseup",c),e&&e.classList.remove("dragging"),document.body.style.cursor="",T){i=!0;const a=l(S.x,S.y);a.x!==S.x||a.y!==S.y?(p.style.transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",p.style.left=a.x+"px",p.style.top=a.y+"px",p.style.transform="",setTimeout(()=>{p&&(p.style.transition="")},15e3),S=a):(p.style.left=S.x+"px",p.style.top=S.y+"px",p.style.transform=""),We()}T=!1,r=!1}}function q(e){try{const{origin:t,pathname:n}=new URL(e),r=n.match(/^\/problems\/[^/]+/);return r?`${t}${r[0]}`:`${t}${n}`}catch{return e}}function _(){return document.querySelector("div.text-title-large a")?.textContent?.trim()??""}function Le(e){const t=e.match(/^\s*(\d+)/);if(!t)return null;const n=Number(t[1]);return Number.isFinite(n)?n:null}function ee(e,t){return`${Pe}:${encodeURIComponent(e)}:${encodeURIComponent(t)}`}function et(){const e=document.querySelectorAll('a[href^="/tag/"]'),t=Array.from(e).map(n=>n.getAttribute("href")).filter(n=>!!n).map(n=>n.replace("/tag/","").replace("/","").replace("-","_"));return Object.fromEntries(Array.from(new Set(t)).map(n=>[n,{thoughts_to_remember:[],pitfalls:[]}]))}function Ae(e,t,n){const r=n??_(),i=crypto.randomUUID();return{element:e,sessionId:i,userId:t,problem:r,problemUrl:q(window.location.href),topics:et(),content:[],prompt:"",position:null,size:null,guideModeEnabled:!1,checkModeEnabled:!1,timerEnabled:!1,rollingStateGuideMode:{problem:r,nudges:[],lastEdit:""},sessionRollingHistory:{qaHistory:[],summary:"",toSummarize:[]}}}async function te(){if(o&&o.element&&document.body.contains(o.element)){xe(o.element),ge(),I=!0,o.element,U(),b(o.element);return}if(o?.userId){ut();try{await k(o.element??null,{force:!0})}finally{pt()}}if(!w){const t=await z();if(t?.userId){const n=await le(t.userId,_());n&&de(n,t.userId)&&(w=n)}}if(w){const t=Ue();qe(t,w),w=null,xe(t),ge(),I=!0,U(),o?.userId||(ue(t),pe(t)),b(t);return}const e=Ue();if(!e){console.log("There was an error creating a panel");return}o=Ae(e,""),xe(e),ge(),I=!0,U(),b(e),z().then(t=>{if(o){if(t?.userId){o.userId=t.userId;return}ue(e),pe(e)}}),setTimeout(()=>{const t=e.querySelector(".tutor-panel-prompt");t&&(t.focus(),t.setSelectionRange(t.value.length,t.value.length))},100)}let ne=!1;async function tt(e){if(ne||e.toSummarize.length===0)return;const t=e.toSummarize.splice(0);ne=!0;try{const n=await m.runtime.sendMessage({action:"summarize-history",payload:{sessionId:o?.sessionId??"",summarize:t,summary:e.summary}});typeof n=="string"&&(e.summary=n)}finally{ne=!1}}function Ce(e){if(e.qaHistory.length<=40)return;const t=e.qaHistory.splice(0,20);e.toSummarize.push(...t),tt(e)}let o=null;const oe="vibetutor-auth",Pe="vibetutor-session",nt=60*1e3,ot=15e3,Ne=1440*60*1e3,it=1800*1e3,rt=`${Pe}:`;let w=null,F=Date.now(),$e=0,C=!1,ie=null,re=null,se=null,He=q(window.location.href),ae=null;async function z(){return(await m.storage.local.get(oe))[oe]??null}async function st(){await m.storage.local.remove(oe),await m.runtime.sendMessage({action:"clear-auth"})}async function k(e,t){if(!o||!o.userId||C&&!t?.force)return;const n=e?.querySelector(".tutor-panel-content")??o.element?.querySelector(".tutor-panel-content"),r=ee(o.userId,o.problem),i={state:{sessionId:o.sessionId,userId:o.userId,content:o.content,problem:o.problem,problemUrl:o.problemUrl,topics:o.topics,prompt:o.prompt,position:o.position,size:o.size,guideModeEnabled:o.guideModeEnabled,checkModeEnabled:o.checkModeEnabled,timerEnabled:o.timerEnabled,rollingStateGuideMode:o.rollingStateGuideMode,sessionRollingHistory:o.sessionRollingHistory},panelOpen:I,contentHtml:n?.innerHTML??"",lastActivityAt:F};await m.storage.local.set({[r]:i})}function b(e){C||ie||(ie=window.setTimeout(()=>{ie=null,k(e)},500))}async function le(e,t){const n=ee(e,t),i=(await m.storage.local.get(n))[n]??null;return i?Date.now()-(i.lastActivityAt??0)>Ne?(await m.storage.local.remove(n),null):i:null}async function ce(e,t){const n=ee(e,t);await m.storage.local.remove(n)}async function Re(){const e=await m.storage.local.get(null),t=Date.now(),n=[];for(const[r,i]of Object.entries(e)){if(!r.startsWith(rt))continue;const l=i?.lastActivityAt??0;t-l>Ne&&n.push(r)}n.length>0&&await m.storage.local.remove(n)}function at(){Re(),ae&&window.clearInterval(ae),ae=window.setInterval(()=>{Re()},it)}function de(e,t){if(!e.state.userId)return console.log("There was no stored user in the browser."),!1;if(e.state.userId!==t)return console.log("The stored user earlier is different from the one logging in now."),!1;const n=q(window.location.href);return e.state.problemUrl===n}function qe(e,t){o={...t.state,element:e};const n=e.querySelector(".tutor-panel-content");n&&(n.innerHTML=t.contentHtml||"");const r=e.querySelector(".tutor-panel-prompt");r&&(r.value=o.prompt??""),o.position&&(e.style.left=`${o.position.x}px`,e.style.top=`${o.position.y}px`),o.size&&(e.style.width=`${o.size.width}px`,e.style.height=`${o.size.height}px`);const i=e.querySelectorAll(".guide-wrapper");$=i.length,L=i.length>0?i[i.length-1]:null}function lt(e,t,n){Fe();const r=e.querySelector(".tutor-panel-content");r&&(r.innerHTML="");const i=e.querySelector(".tutor-panel-prompt");i&&(i.value=""),o=Ae(e,t,n)}async function _e(){const e=await z();if(!e?.userId){w=null;return}const t=await le(e.userId,_());if(!t){w=null;return}if(!de(t,e.userId)){await ce(e.userId,t.state.problem),w=null;return}w=t,F=t.lastActivityAt??Date.now()}function U(){F=Date.now(),Date.now()-$e>ot&&($e=Date.now(),b())}async function ct(){if(o?.element&&(await k(o.element,{force:!0}),C=!0),await st(),o&&(o.guideModeEnabled=!1,o.checkModeEnabled=!1),o?.element){const e=o.element;je(),e.classList.remove("guidemode-active","checkmode-active"),ue(e),pe(e)}}function dt(){const e=()=>U(),t=["mousemove","keydown","click","scroll","input"];for(const n of t)document.addEventListener(n,e,{passive:!0});re&&window.clearInterval(re),re=window.setInterval(async()=>{Date.now()-F<nt||!(await z())?.userId||await ct()},6e4)}function Fe(){M=null,P=!1,y=new Set,me=0,D=!1,N=null,fe=null,he=0,$=0,L=null}function ue(e){e.classList.add("tutor-panel-locked"),Y(e,!0)}function ze(e){e.classList.remove("tutor-panel-locked"),Y(e,!1)}function ut(){if(document.getElementById("tutor-panel-loading"))return;const e=document.createElement("div");e.id="tutor-panel-loading",e.className="tutor-panel-loading",e.innerHTML='<span class="tutor-panel-loading-spinner"></span><span>Restoring session...</span>',document.body.appendChild(e)}function pt(){document.getElementById("tutor-panel-loading")?.remove()}async function gt(e){o?.userId&&o.element&&await k(o.element,{force:!0}),w=null,Fe();const t=I;o?.element&&o.element.remove(),o=null,I=!1,Be(),await _e(),t&&te()}function mt(){se&&window.clearInterval(se),se=window.setInterval(()=>{const e=q(window.location.href);e!==He&&(He=e,gt())},1e3)}function pe(e){if(e.querySelector(".tutor-panel-auth"))return;const t=document.createElement("div");t.className="tutor-panel-auth",t.innerHTML=`
-    <h4>Login Required</h4>
-    <input type="email" class="auth-email" placeholder="you@example.com" />
-    <input type="password" class="auth-password" placeholder="password" />
-    <button type="button" class="auth-login">Login</button>
-  `,e.appendChild(t);const n=t.querySelector(".auth-email"),r=t.querySelector(".auth-password");t.querySelector(".auth-login")?.addEventListener("click",async()=>{const s=n?.value.trim()??"",l=r?.value.trim()??"";if(!s||!l)return;const d=await m.runtime.sendMessage({action:"supabase-login",payload:{email:s,password:l}});if(d?.userId&&d?.jwt){const c=o?.userId??"",a=o?.problem??_();if(c&&c===d.userId){C=!1,ze(e),t.remove(),b(e);return}c&&c!==d.userId&&(await k(e,{force:!0}),lt(e,d.userId,a));const u=await le(d.userId,a);u&&de(u,d.userId)?(qe(e,u),await ce(d.userId,u.state.problem),w=null):u&&await ce(d.userId,u.state.problem),o&&(o.userId=d.userId),C=!1,ze(e),t.remove(),b(e)}})}function Ue(){document.getElementById("tutor-panel")?.remove();const e=document.createElement("div");e.id="tutor-panel",e.classList.add("tutor-panel"),e.innerHTML=`
+} */
+
+/* Align all text sizes to Enter button */
+.tutor-panel *{
+  font-size: inherit;
+}`,document.head.appendChild(n),document.body.appendChild(m);const r=document.getElementById("logo-image");r&&(r.addEventListener("load",()=>{console.log("✅ image loaded successfully")}),r.addEventListener("error",()=>{console.error("❌ Failed to load logo image:",t),r.style.display="none"})),tt()}function et(e){const t=e.match(/([\s\S]*?)\bTo fix:\s*([\s\S]*)/i);if(!t)return e;const n=t[1].trim(),o=t[2].trim().split(";").map(a=>a.trim()).filter(Boolean);if(o.length===0)return e;const s=o.map(a=>`- ${a.replace(/\.$/,"")}`).join(`
+`);return`${n}
+
+**To fix**
+${s}`}function tt(){const e=document.getElementById("main-button");if(!e)return;let t=0,n={x:0,y:0},r=!1,o=!1;function s(c,u){if(!m)return{x:c,y:u};const g={width:50,height:50},x=window.innerWidth,p=window.innerHeight,f=10;let y=Math.max(f,c);y=Math.min(x-g.width-f,y);let w=Math.max(f,u);return w=Math.min(p-g.height-f,w),{x:y,y:w}}function a(c,u){if(!m)return{x:c,y:u};const g={width:50,height:50},x=window.innerWidth,p=window.innerHeight,f=20,y=c,w=x-(c+g.width),I=u,Z=p-(u+g.height),$=Math.min(y,w,I,Z);let Ee=c,ke=u;return(c<0||c+g.width>x||u<0||u+g.height>p)&&($===y?Ee=f:$===w?Ee=x-g.width-f:$===I?ke=f:$===Z&&(ke=p-g.height-f)),{x:Ee,y:ke}}e.addEventListener("mousedown",c=>{c.preventDefault(),t=Date.now(),n={x:c.clientX,y:c.clientY},r=!1;const u=m.getBoundingClientRect();F.x=c.clientX-u.left,F.y=c.clientY-u.top,e.classList.add("dragging"),document.addEventListener("mousemove",d),document.addEventListener("mouseup",l)}),e.addEventListener("click",c=>{if(o){o=!1;return}!A&&!r&&(c.preventDefault(),c.stopPropagation(),M?Ue():ne())});function d(c){const u=Date.now()-t,g=Math.sqrt(Math.pow(c.clientX-n.x,2)+Math.pow(c.clientY-n.y,2));if(!A&&(g>3||u>100)&&(A=!0,r=!0,document.body.style.cursor="grabbing"),A){const x=c.clientX-F.x,p=c.clientY-F.y,f=s(x,p);m.style.transform=`translate(${f.x}px, ${f.y}px)`,m.style.left="0",m.style.top="0",E={x:f.x,y:f.y}}}function l(){if(document.removeEventListener("mousemove",d),document.removeEventListener("mouseup",l),e&&e.classList.remove("dragging"),document.body.style.cursor="",A){o=!0;const c=a(E.x,E.y);c.x!==E.x||c.y!==E.y?(m.style.transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",m.style.left=c.x+"px",m.style.top=c.y+"px",m.style.transform="",setTimeout(()=>{m&&(m.style.transition="")},15e3),E=c):(m.style.left=E.x+"px",m.style.top=E.y+"px",m.style.transform=""),Oe()}A=!1,r=!1}}function z(e){try{const{origin:t,pathname:n}=new URL(e),r=n.match(/^\/problems\/[^/]+/);return r?`${t}${r[0]}`:`${t}${n}`}catch{return e}}function B(){return document.querySelector("div.text-title-large a")?.textContent?.trim()??""}function Le(e){const t=e.match(/^\s*(\d+)/);if(!t)return null;const n=Number(t[1]);return Number.isFinite(n)?n:null}function te(e,t){return`${Pe}:${encodeURIComponent(e)}:${encodeURIComponent(t)}`}function nt(){const e=document.querySelectorAll('a[href^="/tag/"]'),t=Array.from(e).map(n=>n.getAttribute("href")).filter(n=>!!n).map(n=>n.replace("/tag/","").replace("/","").replace("-","_"));return Object.fromEntries(Array.from(new Set(t)).map(n=>[n,{thoughts_to_remember:[],pitfalls:[]}]))}function Ae(e,t,n){const r=n??B(),o=crypto.randomUUID();return{element:e,sessionId:o,userId:t,problem:r,problemUrl:z(window.location.href),topics:nt(),content:[],prompt:"",position:null,size:null,guideModeEnabled:!1,checkModeEnabled:!1,timerEnabled:!1,rollingStateGuideMode:{problem:r,nudges:[],lastEdit:""},sessionRollingHistory:{qaHistory:[],summary:"",toSummarize:[]}}}async function ne(){const e=await ce(),t=ct(e),n=e?.userId??"";if(t&&await Re(),i&&i.element&&document.body.contains(i.element)){xe(i.element),ge(),M=!0,i.element,(!n||t)&&(D(i.element),O(i.element)),U(),b(i.element);return}if(i?.userId){mt();try{await C(i.element??null,{force:!0})}finally{ft()}}if(!v&&n){const o=await de(n,B());o&&pe(o,n)&&(v=o)}if(v){const o=We();_e(o,v),v=null,xe(o),ge(),M=!0,U(),(!n||t)&&(D(o),O(o)),b(o);return}const r=We();if(!r){console.log("There was an error creating a panel");return}i=Ae(r,n),xe(r),ge(),M=!0,U(),b(r),i&&(!n||t?(D(r),O(r)):i.userId=n,setTimeout(()=>{const o=r.querySelector(".tutor-panel-prompt");o&&(o.focus(),o.setSelectionRange(o.value.length,o.value.length))},100))}let oe=!1;async function ot(e){if(oe||e.toSummarize.length===0)return;const t=e.toSummarize.splice(0);oe=!0;try{const n=await h.runtime.sendMessage({action:"summarize-history",payload:{sessionId:i?.sessionId??"",summarize:t,summary:e.summary}});typeof n=="string"&&(e.summary=n)}finally{oe=!1}}function Ce(e){if(e.qaHistory.length<=40)return;const t=e.qaHistory.splice(0,20);e.toSummarize.push(...t),ot(e)}let i=null;const ie="vibetutor-auth",Pe="vibetutor-session",it="http://localhost:3000/auth/bridge",rt=960*60*1e3,st=15e3,$e=1440*60*1e3,at=1800*1e3,lt=`${Pe}:`;let v=null,W=Date.now(),qe=0,q=!1,re=null,se=null,ae=null,Ne=z(window.location.href),le=null;async function ce(){return(await h.storage.local.get(ie))[ie]??null}function ct(e){return e?.expiresAt?Date.now()>e.expiresAt:!1}async function Re(){await h.storage.local.remove(ie),await h.runtime.sendMessage({action:"clear-auth"})}async function C(e,t){if(!i||!i.userId||q&&!t?.force)return;const n=e?.querySelector(".tutor-panel-content")??i.element?.querySelector(".tutor-panel-content"),r=te(i.userId,i.problem),o={state:{sessionId:i.sessionId,userId:i.userId,content:i.content,problem:i.problem,problemUrl:i.problemUrl,topics:i.topics,prompt:i.prompt,position:i.position,size:i.size,guideModeEnabled:i.guideModeEnabled,checkModeEnabled:i.checkModeEnabled,timerEnabled:i.timerEnabled,rollingStateGuideMode:i.rollingStateGuideMode,sessionRollingHistory:i.sessionRollingHistory},panelOpen:M,contentHtml:n?.innerHTML??"",lastActivityAt:W};await h.storage.local.set({[r]:o})}function b(e){q||re||(re=window.setTimeout(()=>{re=null,C(e)},500))}async function de(e,t){const n=te(e,t),o=(await h.storage.local.get(n))[n]??null;return o?Date.now()-(o.lastActivityAt??0)>$e?(await h.storage.local.remove(n),null):o:null}async function ue(e,t){const n=te(e,t);await h.storage.local.remove(n)}async function He(){const e=await h.storage.local.get(null),t=Date.now(),n=[];for(const[r,o]of Object.entries(e)){if(!r.startsWith(lt))continue;const a=o?.lastActivityAt??0;t-a>$e&&n.push(r)}n.length>0&&await h.storage.local.remove(n)}function dt(){He(),le&&window.clearInterval(le),le=window.setInterval(()=>{He()},at)}function pe(e,t){if(!e.state.userId)return console.log("There was no stored user in the browser."),!1;if(e.state.userId!==t)return console.log("The stored user earlier is different from the one logging in now."),!1;const n=z(window.location.href);return e.state.problemUrl===n}function _e(e,t){i={...t.state,element:e};const n=e.querySelector(".tutor-panel-content");n&&(n.innerHTML=t.contentHtml||"");const r=e.querySelector(".tutor-panel-prompt");r&&(r.value=i.prompt??""),i.position&&(e.style.left=`${i.position.x}px`,e.style.top=`${i.position.y}px`),i.size&&(e.style.width=`${i.size.width}px`,e.style.height=`${i.size.height}px`);const o=e.querySelectorAll(".guide-wrapper");H=o.length,P=o.length>0?o[o.length-1]:null}function ut(e,t,n){ze();const r=e.querySelector(".tutor-panel-content");r&&(r.innerHTML="");const o=e.querySelector(".tutor-panel-prompt");o&&(o.value=""),i=Ae(e,t,n)}async function Fe(){const e=await ce();if(!e?.userId){v=null;return}const t=await de(e.userId,B());if(!t){v=null;return}if(!pe(t,e.userId)){await ue(e.userId,t.state.problem),v=null;return}v=t,W=t.lastActivityAt??Date.now()}function U(){W=Date.now(),Date.now()-qe>st&&(qe=Date.now(),b())}async function pt(){if(i?.element&&(await C(i.element,{force:!0}),q=!0),await Re(),i&&(i.guideModeEnabled=!1,i.checkModeEnabled=!1),i?.element){const e=i.element;Ke(),e.classList.remove("guidemode-active","checkmode-active"),D(e),O(e)}}function gt(){const e=()=>U(),t=["mousemove","keydown","click","scroll","input"];for(const n of t)document.addEventListener(n,e,{passive:!0});se&&window.clearInterval(se),se=window.setInterval(async()=>{Date.now()-W<rt||!(await ce())?.userId||await pt()},6e4)}function ze(){T=null,N=!1,S=new Set,me=0,G=!1,R=null,fe=null,he=0,H=0,P=null}function D(e){e.classList.add("tutor-panel-locked"),X(e,!0)}function Be(e){e.classList.remove("tutor-panel-locked"),X(e,!1)}function mt(){if(document.getElementById("tutor-panel-loading"))return;const e=document.createElement("div");e.id="tutor-panel-loading",e.className="tutor-panel-loading",e.innerHTML='<span class="tutor-panel-loading-spinner"></span><span>Restoring session...</span>',document.body.appendChild(e)}function ft(){document.getElementById("tutor-panel-loading")?.remove()}async function ht(e){i?.userId&&i.element&&await C(i.element,{force:!0}),v=null,ze();const t=M;i?.element&&i.element.remove(),i=null,M=!1,De(),await Fe(),t&&ne()}function bt(){ae&&window.clearInterval(ae),ae=window.setInterval(()=>{const e=z(window.location.href);e!==Ne&&(Ne=e,ht())},1e3)}function O(e){if(e.querySelector(".tutor-panel-auth"))return;const t=document.createElement("div");t.className="tutor-panel-auth",e.appendChild(t);const n=async s=>{const a=i?.userId??"",d=i?.problem??B();if(a&&a===s){q=!1,Be(e),t.remove(),b(e);return}a&&a!==s&&(await C(e,{force:!0}),ut(e,s,d));const l=await de(s,d);l&&pe(l,s)?(_e(e,l),await ue(s,l.state.problem),v=null):l&&await ue(s,l.state.problem),i&&(i.userId=s),q=!1,Be(e),t.remove(),b(e)},r=s=>{t.innerHTML=`
+      <div class="auth-error"></div>
+      <h4>Login Required</h4>
+      <input type="email" class="auth-email" placeholder="you@example.com" />
+      <input type="password" class="auth-password" placeholder="password" />
+      <div class="auth-actions">
+        <button type="button" class="auth-login">Login</button>
+        <span class="auth-sep">/</span>
+        <button type="button" class="auth-signup">Sign up</button>
+      </div>
+    `;const a=t.querySelector(".auth-email"),d=t.querySelector(".auth-password"),l=t.querySelector(".auth-login"),c=t.querySelector(".auth-signup"),u=t.querySelector(".auth-error");s&&u&&(u.textContent=s,u.style.display="block");const g=()=>{u&&(u.style.display="none")};a?.addEventListener("input",g),d?.addEventListener("input",g),l?.addEventListener("click",async()=>{const x=a?.value.trim()??"",p=d?.value.trim()??"";if(!x||!p)return;const f=await h.runtime.sendMessage({action:"supabase-login",payload:{email:x,password:p}});f?.userId&&f?.jwt?await n(f.userId):u&&(u.textContent="Invalid creds",u.style.display="block")}),c?.addEventListener("click",()=>{o()})},o=()=>{t.innerHTML=`
+      <h4>Create account</h4>
+      <div class="auth-error">Signup failed</div>
+      <div class="auth-name-row">
+        <input type="text" class="auth-first-name" placeholder="First name" />
+        <input type="text" class="auth-last-name" placeholder="Last name" />
+      </div>
+      <input type="email" class="auth-email" placeholder="you@example.com" />
+      <input type="password" class="auth-password" placeholder="password" />
+      <button type="button" class="auth-signup-submit">Sign up</button>
+      <button type="button" class="auth-back">Back to login</button>
+    `;const s=t.querySelector(".auth-first-name"),a=t.querySelector(".auth-last-name"),d=t.querySelector(".auth-email"),l=t.querySelector(".auth-password"),c=t.querySelector(".auth-signup-submit"),u=t.querySelector(".auth-error"),g=()=>{u&&(u.style.display="none")};s?.addEventListener("input",g),a?.addEventListener("input",g),d?.addEventListener("input",g),l?.addEventListener("input",g),c?.addEventListener("click",async()=>{const p=s?.value.trim()??"",f=a?.value.trim()??"",y=d?.value.trim()??"",w=l?.value.trim()??"";if(!p||!f||!y||!w)return;const I=await h.runtime.sendMessage({action:"supabase-signup",payload:{fname:p,lname:f,email:y,password:w}});I?.requiresVerification?r("Waiting for verification, check email"):I?.userId&&I?.jwt?await n(I.userId):u&&(u.style.display="block")}),t.querySelector(".auth-back")?.addEventListener("click",()=>{r()})};r()}function We(){document.getElementById("tutor-panel")?.remove();const e=document.createElement("div");e.id="tutor-panel",e.classList.add("tutor-panel"),e.innerHTML=`
     <div class="tutor-panel-shellbar">
       <button class="tutor-panel-close">×</button>
     </div>
@@ -574,21 +617,22 @@ var content=(function(){"use strict";function Lt(e){return e}const m=globalThis.
           <button class="btn-guide-mode">Guide me</button>
           <button class="btn-help-mode">Check mode</button>
           <button class="btn-timer">Timer</button>
+          <button class="btn-gotToWorkspace">Workspace</button>
         </div>
       </div>
 
       <div class="tutor-panel-content"></div>
 
       <div class="tutor-panel-inputbar">
-        <textarea class="tutor-panel-prompt" placeholder="Ask anything"></textarea>
+        <textarea class="tutor-panel-prompt" placeholder="Ask anything..."></textarea>
         <button class="tutor-panel-send">Enter</button>
       </div>
     </div>
-  `,e.style.position="fixed",e.style.zIndex="1000000",e.style.left="50%",e.style.top="50%",e.style.right="50%",e.style.bottom="50%",document.body.appendChild(e);const t=document.getElementById("tutor-widget");if(t){const n=t.getBoundingClientRect();e.style.left=Math.max(20,Math.min(n.left-320,window.innerWidth-340))+"px",e.style.top=Math.max(20,Math.min(n.top,window.innerHeight-220))+"px"}else e.style.left=Math.max(20,(window.innerWidth-300)/2)+"px",e.style.top=Math.max(20,(window.innerHeight-200)/2)+"px";return setTimeout(()=>e.classList.add("open"),10),Et(e),e}function De(){o?.element&&(wt(o.element),yt(o.element),Be(),I=!1,b(o.element))}function Ct(e){}function ge(){p&&(p.style.display="none")}function Be(){p&&(p.style.display="block")}async function We(){}async function ft(){}let M=null,P=!1,y=new Set,me=0,D=!1,N=null,fe=null,he=0,$=0,L=null;function H(){return document.querySelector(".monaco-editor textarea.inputarea")}function Ge(e,t){return e.slice(0,Math.max(0,t)).split(`
-`).length}function B(){y.clear(),P=!1,M!==null&&(window.clearTimeout(M),M=null)}async function be(e){const t=vt(),r=H()?.value??"",i=Array.from(y)[0]??1;if(!i){B();return}const s=Date.now();if(fe===i&&s-he<250)return;if(fe=i,he=s,!t){B();return}let l="";if(r&&(l=Oe(r,i)),!l.trim()&&i>1&&r){const c=Oe(r,i-1);c.trim()&&(l=c)}let d=t;try{const c=await m.runtime.sendMessage({type:"GET_MONACO_CODE"});c?.ok&&typeof c.code=="string"&&(d=c.code)}catch{}ht(l)&&(Z.push([d,l]),bt()),B()}function ht(e){const t=e.trim();return t?/[;}]\s*$/.test(t)?!0:t==="else"||t==="if"||t==="while"||/^else\b/.test(t)&&/\{\s*$/.test(t)?!1:t.replace(/[{}();]/g," ").trim().split(/\s+/).filter(Boolean).length>1:!1}function Oe(e,t){return e.split(`
-`)[t-1]??""}async function bt(){if(!D){D=!0;try{for(;Z.length>0;){const[e,t]=Z.shift();console.log("This is the focus line: ",t),console.log("the code so far: ",e),Te=!0;const n=await m.runtime.sendMessage({action:"guide-mode",payload:{action:"guide-mode",sessionId:o?.sessionId??"",problem:o?.problem??"",topics:o?.topics,code:e,focusLine:t,rollingStateGuideMode:o?.rollingStateGuideMode}});if(!n)console.log("failure for guide mode");else{const r=n.success?n.reply:null;r?.state_update?.lastEdit?.trim()&&o&&(o.rollingStateGuideMode.lastEdit=r.state_update.lastEdit);const i=r?.nudge;o&&typeof i=="string"&&(o.content.push(`${i}
-`),o.element!=null&&await ye(o.element,"","guideAssistant",i),b(o.element??null));const s=r?.topics;if(s&&typeof s=="object")for(const[l,d]of Object.entries(s)){if(!d||typeof d!="object")continue;const c=d.thoughts_to_remember,a=d.pitfalls,u=Array.isArray(c)?c:typeof c=="string"&&c.trim()?[c.trim()]:[],h=Array.isArray(a)?a:typeof a=="string"&&a.trim()?[a.trim()]:[];o&&(o.topics[l]??={thoughts_to_remember:[],pitfalls:[]},u.length>0&&o.topics[l].thoughts_to_remember.push(...u),h.length>0&&o.topics[l].pitfalls.push(...h))}o?.element&&b(o.element),Te=!1}}}finally{D=!1}}}function Ye(){if(!o?.guideModeEnabled)return;const e=H();if(!e)return;const t=e.value??"",n=e.selectionStart??0,r=Ge(t,n);!y.has(r)&&y.size==0&&y.add(r),P||(P=!0),M!==null&&window.clearTimeout(M),M=window.setTimeout(()=>{be()},1e4),!y.has(r)&&y.size==1&&be()}function Xe(){if(!o?.guideModeEnabled||!P)return;const e=H();if(!e)return;const t=e.value??"",n=e.selectionStart??0,r=Ge(t,n);if(N===null){N=r;return}r!==N&&(N=r,!y.has(r)&&y.size==1&&be())}function Ve(){const e=H();if(!e){me<5&&(me+=1,window.setTimeout(Ve,500));return}e.addEventListener("input",Ye),document.addEventListener("selectionchange",Xe)}function je(){const e=H();e&&(e.removeEventListener("input",Ye),document.removeEventListener("selectionchange",Xe))}function Pt(){}async function xt(e,t){const n=await m.runtime.sendMessage({action:"ask-anything",payload:{sessionId:o?.sessionId??"",action:"ask-anything",rollingHistory:o?.sessionRollingHistory.qaHistory,summary:o?.sessionRollingHistory.summary??"",query:t}});return n&&ye(e,"","assistant",n),n||"Failure"}function xe(e){e.style.display="flex",e.classList.add("open")}function wt(e){e.classList.remove("open"),e.style.display="none"}function yt(e){if(!p)return;const t=e.getBoundingClientRect(),n=p.getBoundingClientRect(),r=n.width||50,i=n.height||50,d=t.left+t.width/2<=window.innerWidth/2?10:window.innerWidth-r-10,c=Math.max(10,Math.min(window.innerHeight/2-i/2,window.innerHeight-i-10));p.style.left=`${d}px`,p.style.top=`${c}px`,p.style.right="auto",p.style.bottom="auto",p.style.transform="",S={x:d,y:c},We()}function vt(){return document.querySelector(".monaco-scrollable-element.editor-scrollable.vs.mac")?.innerText??""}function W(e){return e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function G(e){return e.split("`").map((n,r)=>r%2===1?`<code>${W(n)}</code>`:W(n)).join("")}function St(e){const t=e.replace(/\r\n/g,`
+  `,e.style.position="fixed",e.style.zIndex="1000000",e.style.left="50%",e.style.top="50%",e.style.right="50%",e.style.bottom="50%",document.body.appendChild(e);const t=document.getElementById("tutor-widget");if(t){const n=t.getBoundingClientRect();e.style.left=Math.max(20,Math.min(n.left-320,window.innerWidth-340))+"px",e.style.top=Math.max(20,Math.min(n.top,window.innerHeight-220))+"px"}else e.style.left=Math.max(20,(window.innerWidth-300)/2)+"px",e.style.top=Math.max(20,(window.innerHeight-200)/2)+"px";return setTimeout(()=>e.classList.add("open"),10),Tt(e),e}function Ue(){i?.element&&(St(i.element),Et(i.element),De(),M=!1,b(i.element))}function qt(e){}function ge(){m&&(m.style.display="none")}function De(){m&&(m.style.display="block")}async function Oe(){}async function xt(){}let T=null,N=!1,S=new Set,me=0,G=!1,R=null,fe=null,he=0,H=0,P=null;function _(){return document.querySelector(".monaco-editor textarea.inputarea")}function Ge(e,t){return e.slice(0,Math.max(0,t)).split(`
+`).length}function Y(){S.clear(),N=!1,T!==null&&(window.clearTimeout(T),T=null)}async function be(e){const t=kt(),r=_()?.value??"",o=Array.from(S)[0]??1;if(!o){Y();return}const s=Date.now();if(fe===o&&s-he<250)return;if(fe=o,he=s,!t){Y();return}let a="";if(r&&(a=Ye(r,o)),!a.trim()&&o>1&&r){const l=Ye(r,o-1);l.trim()&&(a=l)}let d=t;try{const l=await h.runtime.sendMessage({type:"GET_MONACO_CODE"});l?.ok&&typeof l.code=="string"&&(d=l.code)}catch{}yt(a)&&(ee.push([d,a]),wt()),Y()}function yt(e){const t=e.trim();return t?/[;}]\s*$/.test(t)?!0:t==="else"||t==="if"||t==="while"||/^else\b/.test(t)&&/\{\s*$/.test(t)?!1:t.replace(/[{}();]/g," ").trim().split(/\s+/).filter(Boolean).length>1:!1}function Ye(e,t){return e.split(`
+`)[t-1]??""}async function wt(){if(!G){G=!0;try{for(;ee.length>0;){const[e,t]=ee.shift();console.log("This is the focus line: ",t),console.log("the code so far: ",e),Me=!0;const n=await h.runtime.sendMessage({action:"guide-mode",payload:{action:"guide-mode",sessionId:i?.sessionId??"",problem:i?.problem??"",topics:i?.topics,code:e,focusLine:t,rollingStateGuideMode:i?.rollingStateGuideMode}});if(!n)console.log("failure for guide mode");else{const r=n.success?n.reply:null;r?.state_update?.lastEdit?.trim()&&i&&(i.rollingStateGuideMode.lastEdit=r.state_update.lastEdit);const o=r?.nudge;i&&typeof o=="string"&&(i.content.push(`${o}
+`),i.element!=null&&await we(i.element,"","guideAssistant",o),b(i.element??null));const s=r?.topics;if(s&&typeof s=="object")for(const[a,d]of Object.entries(s)){if(!d||typeof d!="object")continue;const l=d.thoughts_to_remember,c=d.pitfalls,u=Array.isArray(l)?l:typeof l=="string"&&l.trim()?[l.trim()]:[],g=Array.isArray(c)?c:typeof c=="string"&&c.trim()?[c.trim()]:[];i&&(i.topics[a]??={thoughts_to_remember:[],pitfalls:[]},u.length>0&&i.topics[a].thoughts_to_remember.push(...u),g.length>0&&i.topics[a].pitfalls.push(...g))}i?.element&&b(i.element),Me=!1}}}finally{G=!1}}}function je(){if(!i?.guideModeEnabled)return;const e=_();if(!e)return;const t=e.value??"",n=e.selectionStart??0,r=Ge(t,n);!S.has(r)&&S.size==0&&S.add(r),N||(N=!0),T!==null&&window.clearTimeout(T),T=window.setTimeout(()=>{be()},1e4),!S.has(r)&&S.size==1&&be()}function Ve(){if(!i?.guideModeEnabled||!N)return;const e=_();if(!e)return;const t=e.value??"",n=e.selectionStart??0,r=Ge(t,n);if(R===null){R=r;return}r!==R&&(R=r,!S.has(r)&&S.size==1&&be())}function Xe(){const e=_();if(!e){me<5&&(me+=1,window.setTimeout(Xe,500));return}e.addEventListener("input",je),document.addEventListener("selectionchange",Ve)}function Ke(){const e=_();e&&(e.removeEventListener("input",je),document.removeEventListener("selectionchange",Ve))}function Nt(){}async function vt(e,t){const n=await h.runtime.sendMessage({action:"ask-anything",payload:{sessionId:i?.sessionId??"",action:"ask-anything",rollingHistory:i?.sessionRollingHistory.qaHistory,summary:i?.sessionRollingHistory.summary??"",query:t}});return n&&we(e,"","assistant",n),n||"Failure"}function xe(e){e.style.display="flex",e.classList.add("open")}function St(e){e.classList.remove("open"),e.style.display="none"}function Et(e){if(!m)return;const t=e.getBoundingClientRect(),n=m.getBoundingClientRect(),r=n.width||50,o=n.height||50,d=t.left+t.width/2<=window.innerWidth/2?10:window.innerWidth-r-10,l=Math.max(10,Math.min(window.innerHeight/2-o/2,window.innerHeight-o-10));m.style.left=`${d}px`,m.style.top=`${l}px`,m.style.right="auto",m.style.bottom="auto",m.style.transform="",E={x:d,y:l},Oe()}function kt(){return document.querySelector(".monaco-scrollable-element.editor-scrollable.vs.mac")?.innerText??""}function L(e){return e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function j(e){const t=e.split("`"),n=r=>{const o=/(\*\*[^*\n]+\*\*|'[^'\n]+')/g;let s="",a=0,d;for(;(d=o.exec(r))!==null;){s+=L(r.slice(a,d.index));const l=d[1];l.startsWith("**")?s+=`<strong>${L(l.slice(2,-2))}</strong>`:s+=`<code>${L(l.slice(1,-1))}</code>`,a=o.lastIndex}return s+=L(r.slice(a)),s};return t.map((r,o)=>o%2===1?`<code>${L(r)}</code>`:n(r)).join("")}function It(e){const t=e.replace(/\r\n/g,`
 `).split(`
-`);let n="",r=[],i=null;const s=()=>{r.length!==0&&(n+=`<p>${G(r.join(" "))}</p>`,r=[])},l=()=>{i&&(n+=`</${i}>`,i=null)};for(const d of t){const c=d.trim();if(!c){s(),l();continue}const a=c.match(/^(#{1,3})\s+(.*)$/);if(a){s(),l();const g=a[1].length;n+=`<h${g}>${G(a[2])}</h${g}>`;continue}const u=c.match(/^(\d+)\.\s+(.*)$/);if(u){s(),i&&i!=="ol"&&l(),i||(i="ol",n+="<ol>"),n+=`<li>${G(u[2])}</li>`;continue}const h=c.match(/^[-*]\s+(.*)$/);if(h){s(),i&&i!=="ul"&&l(),i||(i="ul",n+="<ul>"),n+=`<li>${G(h[1])}</li>`;continue}r.push(c)}return s(),l(),n}function A(e){const t=[],n=/```(\w+)?\n([\s\S]*?)```/g;let r=0,i;for(;(i=n.exec(e))!==null;)i.index>r&&t.push({type:"text",content:e.slice(r,i.index)}),t.push({type:"code",content:i[2]??"",lang:i[1]??""}),r=n.lastIndex;return r<e.length&&t.push({type:"text",content:e.slice(r)}),t.map(s=>s.type==="code"?`<pre><code${s.lang?` data-lang="${W(s.lang)}"`:""}>${W(s.content.trimEnd())}</code></pre>`:St(s.content)).join("")}function O(e,t,n){const r=e.querySelector(".tutor-panel-content");if(!r)return null;const i=document.createElement("div");if(n==="assistant")i.className=`tutor-panel-message tutor-panel-message--${n}`,i.innerHTML=A(t);else if(n==="user")i.className="tutor-panel-message tutor-panel-message--user",i.textContent=t;else if(n==="guideAssistant"){const s=document.createElement("div");return s.className="guide-wrapper",i.className=`tutor-panel-message tutor-panel-message--${n}`,i.innerHTML=A(t),s.appendChild(i),r.appendChild(s),s}else if(n==="checkAssistant"){const s=document.createElement("div");return s.className="check-wrapper",i.className=`tutor-panel-message tutor-panel-message--${n}`,i.innerHTML=A(t),s.appendChild(i),r.appendChild(s),s}else i.textContent=t;return r.append(i),r.scrollTop=i.offsetTop,i}function Ke(e,t){const n=[".btn-help-mode",".btn-timer",".tutor-panel-send",".tutor-panel-prompt"];for(const r of n){const i=e.querySelector(r);if(i){if(i instanceof HTMLButtonElement){i.disabled=t;continue}if(i instanceof HTMLTextAreaElement){i.disabled=t;continue}i.setAttribute("aria-disabled",t?"true":"false")}}}function Y(e,t){const n=[".btn-guide-mode",".btn-help-mode",".btn-timer",".tutor-panel-send",".tutor-panel-prompt"];for(const r of n){const i=e.querySelector(r);if(i){if(i instanceof HTMLButtonElement){i.disabled=t;continue}if(i instanceof HTMLTextAreaElement){i.disabled=t;continue}i.setAttribute("aria-disabled",t?"true":"false")}}}function we(e,t,n){return new Promise(r=>{let i=0;const s=2,l=e.offsetTop;t.scrollTop=l;let d=!0;const c=()=>{Math.abs(t.scrollTop-l)>8&&(d=!1)};t.addEventListener("scroll",c,{passive:!0});const a=()=>{i=Math.min(n.length,i+s),e.textContent=n.slice(0,i),d&&(t.scrollTop=l),i<n.length?window.setTimeout(a,12):(t.removeEventListener("scroll",c),r())};a()})}async function ye(e,t,n,r){const i=e.querySelector(".tutor-panel-content");if(i&&typeof r=="string"){if(n==="assistant"){const s=O(e,"","assistant");if(!s)return;await we(s,i,r),s.innerHTML=A(r),o?.sessionRollingHistory.qaHistory.push(`Assitant: ${r}`),o&&Ce(o.sessionRollingHistory),i.scrollTop=s.offsetTop,b(e)}else if(n==="guideAssistant"){const s=O(e,"","guideAssistant");if(!s)return;const l=s.querySelector(".tutor-panel-message--guideAssistant");if(!l)return;$===0&&s.classList.add("guide-start"),$+=1,L=s,await we(l,i,r),l.innerHTML=A(r),i.scrollTop=s.offsetTop,b(e)}else if(n==="checkAssistant"){const s=O(e,"","checkAssistant");if(!s)return;const l=s.querySelector(".tutor-panel-message--checkAssistant");if(!l)return;s.classList.add("check-start"),await we(l,i,r),l.innerHTML=A(r),s.classList.add("check-end"),i.scrollTop=s.offsetTop,b(e)}}}async function It(e,t){try{const n=await m.runtime.sendMessage({action:"check-code",payload:{sessionId:o?.sessionId??"",topics:o?.topics,code:t,action:"check-code",problem_no:Le(o?.problem??""),problem_name:o?.problem??"",problem_url:o?.problemUrl??""}}),r=n?.resp;o&&typeof r=="string"&&o.content.push(`${r}
-`),await ye(e,"","checkAssistant",r);const i=n?.topics;if(i&&typeof i=="object")for(const[s,l]of Object.entries(i)){if(!l||typeof l!="object")continue;const d=l.thoughts_to_remember,c=l.pitfalls,a=Array.isArray(d)?d:typeof d=="string"&&d.trim()?[d.trim()]:[],u=Array.isArray(c)?c:typeof c=="string"&&c.trim()?[c.trim()]:[];o&&(o.topics[s]??={thoughts_to_remember:[],pitfalls:[]},a.length>0&&o.topics[s].thoughts_to_remember.push(...a),u.length>0&&o.topics[s].pitfalls.push(...u))}return console.log("this is the object now: ",o?.topics),b(e),n?.resp}catch(n){return console.error("checkMode failed",n),"Failure"}}function Et(e){const t=e.querySelector(".tutor-panel-close"),n=e.querySelector(".btn-help-mode");e.querySelector(".btn-guide-mode")?.addEventListener("click",()=>{if(!o)return;o.guideModeEnabled=!o.guideModeEnabled;const g=e.querySelector(".btn-guide-mode");if(o.userId){const x=o.problem,f=Le(x);m.runtime.sendMessage({action:"guide-mode-status",payload:{enabled:o.guideModeEnabled,sessionId:o.sessionId,problem_no:f,problem_name:x,problem_url:o.problemUrl}})}Ke(e,!0),e.classList.add("guidemode-active"),o.guideModeEnabled?(g?.classList.add("is-loading"),$=0,L=null,Ve()):(je(),L&&L.classList.add("guide-end"),Ke(e,!1),e.classList.remove("guidemode-active"),g?.classList.remove("is-loading")),b(e)});const i=e.querySelector(".tutor-panel-prompt");e.querySelector(".tutor-panel-send")?.addEventListener("click",async()=>{if(o?.prompt){const g=o.prompt;i&&(i.value=""),o&&(o.prompt=""),O(e,g,"user"),o.sessionRollingHistory.qaHistory.push(`user: ${g}`),Ce(o.sessionRollingHistory),b(e),await xt(e,g),o.prompt="",b(e)}else return void 0}),t?.addEventListener("mousedown",g=>{g.stopPropagation()}),t?.addEventListener("click",async()=>De()),n?.addEventListener("click",async()=>{const g=e.querySelector(".btn-help-mode");let x="";o&&(o.checkModeEnabled=!0,g?.classList.add("is-loading")),Y(e,!0),e.classList.add("checkmode-active");try{const f=await m.runtime.sendMessage({type:"GET_MONACO_CODE"});f?.ok&&typeof f.code=="string"&&o&&(x=f.code);const v=await It(e,x);console.log("this is the response: ",v)}catch{}finally{o&&(o.checkModeEnabled=!1,g?.classList.remove("is-loading")),Y(e,!1),e.classList.remove("checkmode-active"),b(e)}}),i?.addEventListener("input",()=>{o&&(o.prompt=i.value),b(e)});let l=!1,d=0,c=0;const a=e.querySelector(".tutor-panel-shellbar"),u=g=>{if(!l)return;const x=g.clientX-d,f=g.clientY-c,v=window.innerWidth-e.offsetWidth,E=window.innerHeight-e.offsetHeight,K=Math.max(10,Math.min(x,v)),Q=Math.max(10,Math.min(f,E));e.style.left=`${K}px`,e.style.top=`${Q}px`},h=()=>{l&&(l=!1,document.removeEventListener("mousemove",u),document.removeEventListener("mouseup",h),o&&(o.position={x:e.offsetLeft,y:e.offsetTop}),b(e))};a?.addEventListener("mousedown",g=>{g.preventDefault(),l=!0,d=g.clientX-e.getBoundingClientRect().left,c=g.clientY-e.getBoundingClientRect().top,document.addEventListener("mousemove",u),document.addEventListener("mouseup",h)})}function X(e,...t){}const Mt={debug:(...e)=>X(console.debug,...e),log:(...e)=>X(console.log,...e),warn:(...e)=>X(console.warn,...e),error:(...e)=>X(console.error,...e)};class ve extends Event{constructor(t,n){super(ve.EVENT_NAME,{}),this.newUrl=t,this.oldUrl=n}static EVENT_NAME=Se("wxt:locationchange")}function Se(e){return`${m?.runtime?.id}:content:${e}`}function Tt(e){let t,n;return{run(){t==null&&(n=new URL(location.href),t=e.setInterval(()=>{let r=new URL(location.href);r.href!==n.href&&(window.dispatchEvent(new ve(r,n)),n=r)},1e3))}}}class V{constructor(t,n){this.contentScriptName=t,this.options=n,this.abortController=new AbortController,this.isTopFrame?(this.listenForNewerScripts({ignoreFirstEvent:!0}),this.stopOldScripts()):this.listenForNewerScripts()}static SCRIPT_STARTED_MESSAGE_TYPE=Se("wxt:content-script-started");isTopFrame=window.self===window.top;abortController;locationWatcher=Tt(this);receivedMessageIds=new Set;get signal(){return this.abortController.signal}abort(t){return this.abortController.abort(t)}get isInvalid(){return m.runtime.id==null&&this.notifyInvalidated(),this.signal.aborted}get isValid(){return!this.isInvalid}onInvalidated(t){return this.signal.addEventListener("abort",t),()=>this.signal.removeEventListener("abort",t)}block(){return new Promise(()=>{})}setInterval(t,n){const r=setInterval(()=>{this.isValid&&t()},n);return this.onInvalidated(()=>clearInterval(r)),r}setTimeout(t,n){const r=setTimeout(()=>{this.isValid&&t()},n);return this.onInvalidated(()=>clearTimeout(r)),r}requestAnimationFrame(t){const n=requestAnimationFrame((...r)=>{this.isValid&&t(...r)});return this.onInvalidated(()=>cancelAnimationFrame(n)),n}requestIdleCallback(t,n){const r=requestIdleCallback((...i)=>{this.signal.aborted||t(...i)},n);return this.onInvalidated(()=>cancelIdleCallback(r)),r}addEventListener(t,n,r,i){n==="wxt:locationchange"&&this.isValid&&this.locationWatcher.run(),t.addEventListener?.(n.startsWith("wxt:")?Se(n):n,r,{...i,signal:this.signal})}notifyInvalidated(){this.abort("Content script context invalidated"),Mt.debug(`Content script "${this.contentScriptName}" context invalidated`)}stopOldScripts(){window.postMessage({type:V.SCRIPT_STARTED_MESSAGE_TYPE,contentScriptName:this.contentScriptName,messageId:Math.random().toString(36).slice(2)},"*")}verifyScriptStartedEvent(t){const n=t.data?.type===V.SCRIPT_STARTED_MESSAGE_TYPE,r=t.data?.contentScriptName===this.contentScriptName,i=!this.receivedMessageIds.has(t.data?.messageId);return n&&r&&i}listenForNewerScripts(t){let n=!0;const r=i=>{if(this.verifyScriptStartedEvent(i)){this.receivedMessageIds.add(i.data.messageId);const s=n;if(n=!1,s&&t?.ignoreFirstEvent)return;this.notifyInvalidated()}};addEventListener("message",r),this.onInvalidated(()=>removeEventListener("message",r))}}function Nt(){}function j(e,...t){}const kt={debug:(...e)=>j(console.debug,...e),log:(...e)=>j(console.log,...e),warn:(...e)=>j(console.warn,...e),error:(...e)=>j(console.error,...e)};return(async()=>{try{const{main:e,...t}=Qe,n=new V("content",t);return await e(n)}catch(e){throw kt.error('The content script "content" crashed on startup!',e),e}})()})();
+`);let n="",r=[],o=null;const s=()=>{r.length!==0&&(n+=`<p>${j(r.join(" "))}</p>`,r=[])},a=()=>{o&&(n+=`</${o}>`,o=null)};for(const d of t){const l=d.trim();if(!l){s(),a();continue}const c=l.match(/^(#{1,3})\s+(.*)$/);if(c){s(),a();const x=c[1].length;n+=`<h${x}>${j(c[2])}</h${x}>`;continue}const u=l.match(/^(\d+)[.)]\s+(.*)$/);if(u){s(),o&&o!=="ol"&&a(),o||(o="ol",n+="<ol>"),n+=`<li>${j(u[2])}</li>`;continue}const g=l.match(/^[-*]\s+(.*)$/);if(g){s(),o&&o!=="ul"&&a(),o||(o="ul",n+="<ul>"),n+=`<li>${j(g[1])}</li>`;continue}r.push(l)}return s(),a(),n}function k(e){const t=[],n=/```(\w+)?\n([\s\S]*?)```/g;let r=0,o;for(;(o=n.exec(e))!==null;)o.index>r&&t.push({type:"text",content:e.slice(r,o.index)}),t.push({type:"code",content:o[2]??"",lang:o[1]??""}),r=n.lastIndex;return r<e.length&&t.push({type:"text",content:e.slice(r)}),t.map(s=>s.type==="code"?`<pre><code${s.lang?` data-lang="${L(s.lang)}"`:""}>${L(s.content.trimEnd())}</code></pre>`:It(s.content)).join("")}function V(e,t,n){const r=e.querySelector(".tutor-panel-content");if(!r)return null;const o=document.createElement("div");if(n==="assistant")o.className=`tutor-panel-message tutor-panel-message--${n}`,o.innerHTML=k(t);else if(n==="user")o.className="tutor-panel-message tutor-panel-message--user",o.textContent=t;else if(n==="guideAssistant"){const s=document.createElement("div");return s.className="guide-wrapper",o.className=`tutor-panel-message tutor-panel-message--${n}`,o.innerHTML=k(t),s.appendChild(o),r.appendChild(s),s}else if(n==="checkAssistant"){const s=document.createElement("div");return s.className="check-wrapper",o.className=`tutor-panel-message tutor-panel-message--${n}`,o.innerHTML=k(t),s.appendChild(o),r.appendChild(s),s}else o.textContent=t;return r.append(o),r.scrollTop=o.offsetTop,o}function Qe(e,t){const n=[".btn-help-mode",".btn-timer",".tutor-panel-send",".tutor-panel-prompt"];for(const r of n){const o=e.querySelector(r);if(o){if(o instanceof HTMLButtonElement){o.disabled=t;continue}if(o instanceof HTMLTextAreaElement){o.disabled=t;continue}o.setAttribute("aria-disabled",t?"true":"false")}}}function X(e,t){const n=[".btn-guide-mode",".btn-help-mode",".btn-timer",".tutor-panel-send",".tutor-panel-prompt"];for(const r of n){const o=e.querySelector(r);if(o){if(o instanceof HTMLButtonElement){o.disabled=t;continue}if(o instanceof HTMLTextAreaElement){o.disabled=t;continue}o.setAttribute("aria-disabled",t?"true":"false")}}}function ye(e,t,n,r){return new Promise(o=>{let s=0;const a=2,d=e.offsetTop;t.scrollTop=d;let l=!0;const c=()=>{Math.abs(t.scrollTop-d)>8&&(l=!1)};t.addEventListener("scroll",c,{passive:!0});const u=()=>{s=Math.min(n.length,s+a);const g=n.slice(0,s);r?.render?e.innerHTML=r.render(g):e.textContent=g,l&&(t.scrollTop=d),s<n.length?window.setTimeout(u,12):(t.removeEventListener("scroll",c),o())};u()})}async function we(e,t,n,r){const o=et(r),s=e.querySelector(".tutor-panel-content");if(s&&typeof r=="string"){if(n==="assistant"){const a=V(e,"","assistant");if(!a)return;await ye(a,s,o,{render:k}),a.innerHTML=k(o),i?.sessionRollingHistory.qaHistory.push(`Assitant: ${r}`),i&&Ce(i.sessionRollingHistory),s.scrollTop=a.offsetTop,b(e)}else if(n==="guideAssistant"){const a=V(e,"","guideAssistant");if(!a)return;const d=a.querySelector(".tutor-panel-message--guideAssistant");if(!d)return;H===0&&a.classList.add("guide-start"),H+=1,P=a,await ye(d,s,o,{render:k}),d.innerHTML=k(o),s.scrollTop=a.offsetTop,b(e)}else if(n==="checkAssistant"){const a=V(e,"","checkAssistant");if(!a)return;const d=a.querySelector(".tutor-panel-message--checkAssistant");if(!d)return;a.classList.add("check-start"),await ye(d,s,o,{render:k}),d.innerHTML=k(o),a.classList.add("check-end"),s.scrollTop=a.offsetTop,b(e)}}}async function Mt(e,t){try{const n=await h.runtime.sendMessage({action:"check-code",payload:{sessionId:i?.sessionId??"",topics:i?.topics,code:t,action:"check-code",problem_no:Le(i?.problem??""),problem_name:i?.problem??"",problem_url:i?.problemUrl??""}}),r=n?.resp;i&&typeof r=="string"&&i.content.push(`${r}
+`),await we(e,"","checkAssistant",r);const o=n?.topics;if(o&&typeof o=="object")for(const[s,a]of Object.entries(o)){if(!a||typeof a!="object")continue;const d=a.thoughts_to_remember,l=a.pitfalls,c=Array.isArray(d)?d:typeof d=="string"&&d.trim()?[d.trim()]:[],u=Array.isArray(l)?l:typeof l=="string"&&l.trim()?[l.trim()]:[];i&&(i.topics[s]??={thoughts_to_remember:[],pitfalls:[]},c.length>0&&i.topics[s].thoughts_to_remember.push(...c),u.length>0&&i.topics[s].pitfalls.push(...u))}return console.log("this is the object now: ",i?.topics),b(e),n?.resp}catch(n){return console.error("checkMode failed",n),"Failure"}}function Tt(e){const t=e.querySelector(".tutor-panel-close"),n=e.querySelector(".btn-help-mode"),r=e.querySelector(".btn-guide-mode"),o=e.querySelector(".btn-gotToWorkspace");r?.addEventListener("click",()=>{if(!i)return;i.guideModeEnabled=!i.guideModeEnabled;const p=e.querySelector(".btn-guide-mode");if(i.userId){const f=i.problem,y=Le(f);h.runtime.sendMessage({action:"guide-mode-status",payload:{enabled:i.guideModeEnabled,sessionId:i.sessionId,problem_no:y,problem_name:f,problem_url:i.problemUrl}})}Qe(e,!0),e.classList.add("guidemode-active"),i.guideModeEnabled?(p?.classList.add("is-loading"),H=0,P=null,Xe()):(Ke(),P&&P.classList.add("guide-end"),Qe(e,!1),e.classList.remove("guidemode-active"),p?.classList.remove("is-loading")),b(e)}),o?.addEventListener("click",async()=>{await h.runtime.sendMessage({action:"go-to-workspace",payload:{url:it}})});const s=e.querySelector(".tutor-panel-prompt");e.querySelector(".tutor-panel-send")?.addEventListener("click",async()=>{if(i?.prompt){const p=i.prompt;s&&(s.value=""),i&&(i.prompt=""),V(e,p,"user"),i.sessionRollingHistory.qaHistory.push(`user: ${p}`),Ce(i.sessionRollingHistory),b(e),await vt(e,p),i.prompt="",b(e)}else return void 0}),t?.addEventListener("mousedown",p=>{p.stopPropagation()}),t?.addEventListener("click",async()=>Ue()),n?.addEventListener("click",async()=>{const p=e.querySelector(".btn-help-mode");let f="";i&&(i.checkModeEnabled=!0,p?.classList.add("is-loading")),X(e,!0),e.classList.add("checkmode-active");try{const y=await h.runtime.sendMessage({type:"GET_MONACO_CODE"});y?.ok&&typeof y.code=="string"&&i&&(f=y.code);const w=await Mt(e,f);console.log("this is the response: ",w)}catch{}finally{i&&(i.checkModeEnabled=!1,p?.classList.remove("is-loading")),X(e,!1),e.classList.remove("checkmode-active"),b(e)}}),s?.addEventListener("input",()=>{i&&(i.prompt=s.value),b(e)});let d=!1,l=0,c=0;const u=e.querySelector(".tutor-panel-shellbar"),g=p=>{if(!d)return;const f=p.clientX-l,y=p.clientY-c,w=window.innerWidth-e.offsetWidth,I=window.innerHeight-e.offsetHeight,Z=Math.max(10,Math.min(f,w)),$=Math.max(10,Math.min(y,I));e.style.left=`${Z}px`,e.style.top=`${$}px`},x=()=>{d&&(d=!1,document.removeEventListener("mousemove",g),document.removeEventListener("mouseup",x),i&&(i.position={x:e.offsetLeft,y:e.offsetTop}),b(e))};u?.addEventListener("mousedown",p=>{p.preventDefault(),d=!0,l=p.clientX-e.getBoundingClientRect().left,c=p.clientY-e.getBoundingClientRect().top,document.addEventListener("mousemove",g),document.addEventListener("mouseup",x)})}function K(e,...t){}const Lt={debug:(...e)=>K(console.debug,...e),log:(...e)=>K(console.log,...e),warn:(...e)=>K(console.warn,...e),error:(...e)=>K(console.error,...e)};class ve extends Event{constructor(t,n){super(ve.EVENT_NAME,{}),this.newUrl=t,this.oldUrl=n}static EVENT_NAME=Se("wxt:locationchange")}function Se(e){return`${h?.runtime?.id}:content:${e}`}function At(e){let t,n;return{run(){t==null&&(n=new URL(location.href),t=e.setInterval(()=>{let r=new URL(location.href);r.href!==n.href&&(window.dispatchEvent(new ve(r,n)),n=r)},1e3))}}}class Q{constructor(t,n){this.contentScriptName=t,this.options=n,this.abortController=new AbortController,this.isTopFrame?(this.listenForNewerScripts({ignoreFirstEvent:!0}),this.stopOldScripts()):this.listenForNewerScripts()}static SCRIPT_STARTED_MESSAGE_TYPE=Se("wxt:content-script-started");isTopFrame=window.self===window.top;abortController;locationWatcher=At(this);receivedMessageIds=new Set;get signal(){return this.abortController.signal}abort(t){return this.abortController.abort(t)}get isInvalid(){return h.runtime.id==null&&this.notifyInvalidated(),this.signal.aborted}get isValid(){return!this.isInvalid}onInvalidated(t){return this.signal.addEventListener("abort",t),()=>this.signal.removeEventListener("abort",t)}block(){return new Promise(()=>{})}setInterval(t,n){const r=setInterval(()=>{this.isValid&&t()},n);return this.onInvalidated(()=>clearInterval(r)),r}setTimeout(t,n){const r=setTimeout(()=>{this.isValid&&t()},n);return this.onInvalidated(()=>clearTimeout(r)),r}requestAnimationFrame(t){const n=requestAnimationFrame((...r)=>{this.isValid&&t(...r)});return this.onInvalidated(()=>cancelAnimationFrame(n)),n}requestIdleCallback(t,n){const r=requestIdleCallback((...o)=>{this.signal.aborted||t(...o)},n);return this.onInvalidated(()=>cancelIdleCallback(r)),r}addEventListener(t,n,r,o){n==="wxt:locationchange"&&this.isValid&&this.locationWatcher.run(),t.addEventListener?.(n.startsWith("wxt:")?Se(n):n,r,{...o,signal:this.signal})}notifyInvalidated(){this.abort("Content script context invalidated"),Lt.debug(`Content script "${this.contentScriptName}" context invalidated`)}stopOldScripts(){window.postMessage({type:Q.SCRIPT_STARTED_MESSAGE_TYPE,contentScriptName:this.contentScriptName,messageId:Math.random().toString(36).slice(2)},"*")}verifyScriptStartedEvent(t){const n=t.data?.type===Q.SCRIPT_STARTED_MESSAGE_TYPE,r=t.data?.contentScriptName===this.contentScriptName,o=!this.receivedMessageIds.has(t.data?.messageId);return n&&r&&o}listenForNewerScripts(t){let n=!0;const r=o=>{if(this.verifyScriptStartedEvent(o)){this.receivedMessageIds.add(o.data.messageId);const s=n;if(n=!1,s&&t?.ignoreFirstEvent)return;this.notifyInvalidated()}};addEventListener("message",r),this.onInvalidated(()=>removeEventListener("message",r))}}function Rt(){}function J(e,...t){}const Ct={debug:(...e)=>J(console.debug,...e),log:(...e)=>J(console.log,...e),warn:(...e)=>J(console.warn,...e),error:(...e)=>J(console.error,...e)};return(async()=>{try{const{main:e,...t}=Je,n=new Q("content",t);return await e(n)}catch(e){throw Ct.error('The content script "content" crashed on startup!',e),e}})()})();
 content;

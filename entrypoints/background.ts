@@ -162,7 +162,7 @@ async function handleMessage(message: VibeTutorMessage) {
       return handleSetTimer(message.payload);
     }
     case "go-to-workspace":
-      return handleGoToWorkspace();
+      return handleGoToWorkspace(message.payload as { url?: string });
 
     case "ask-anything": {
       if (!isChatPayload(message.payload)) {
@@ -197,6 +197,13 @@ async function handleMessage(message: VibeTutorMessage) {
       }
       const auth = await supabaseLogin(message.payload);
       return auth ?? { success: false, error: "Login failed" };
+    }
+    case "supabase-signup": {
+      if (!isSupabaseSignupPayload(message.payload)) {
+        return { success: false, error: "Invalid signup payload" };
+      }
+      const auth = await supabaseSignup(message.payload);
+      return auth ?? { success: false, error: "Signup failed" };
     }
     case "clear-auth": {
       await clearAuthState();
@@ -416,11 +423,24 @@ async function handleSummarize(payload: {
   return data.reply;
 }
 
-type AuthState = { userId: string; jwt: string };
+type AuthState = {
+  userId: string;
+  jwt: string;
+  accessToken?: string;
+  issuedAt?: number;
+  expiresAt?: number;
+};
 const AUTH_STORAGE_KEY = "vibetutor-auth";
 const BACKEND_BASE_URL = "http://127.0.0.1:8000";
+const WORKSPACE_STATE_KEY = "vibetutor-workspace-state";
+const AUTH_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 let authCache: AuthState | null = null;
+
+function isAuthExpired(auth: AuthState | null) {
+  if (!auth?.expiresAt) return false;
+  return Date.now() > auth.expiresAt;
+}
 
 async function setAuthState(payload: AuthState) {
   authCache = payload;
@@ -433,12 +453,21 @@ async function clearAuthState() {
 }
 
 async function getAuthState() {
-  if (authCache) return authCache;
+  if (authCache) {
+    if (isAuthExpired(authCache)) {
+      await clearAuthState();
+      return null;
+    }
+    return authCache;
+  }
   const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
   authCache = (stored[AUTH_STORAGE_KEY] as AuthState | undefined) ?? null;
+  if (isAuthExpired(authCache)) {
+    await clearAuthState();
+    return null;
+  }
   return authCache;
 }
-
 
 async function handleSolution(payload: { sessionId: string }) {
   console.debug("VibeTutor: solution requested", payload.sessionId);
@@ -455,9 +484,36 @@ async function handleSetTimer(payload: { sessionId: string; timer: unknown }) {
   return { success: true };
 }
 
-async function handleGoToWorkspace() {
+async function handleGoToWorkspace(payload?: { url?: string }) {
   try {
-    await browser.tabs.create({ url: "https://example.com/workspace" });
+    const url = payload?.url?.trim();
+    if (!url) {
+      return { success: false, error: "Workspace URL missing" };
+    }
+    const auth = await getAuthState();
+    if (!auth?.accessToken) {
+      return { success: false, error: "Not authenticated" };
+    }
+    const state = crypto.randomUUID();
+    await browser.storage.local.set({
+      [WORKSPACE_STATE_KEY]: { value: state, createdAt: Date.now() },
+    });
+    // Here, the backend uvicorn right, if you run locally, copy that url, and put it as value for BACKEND_BASE_URL
+    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/bridge/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: auth.accessToken, state }),
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!response.ok || !data?.code) {
+      return { success: false, error: "Workspace auth bridge failed" };
+    }
+    const separator = url.includes("?") ? "&" : "?";
+    const target = `${url}${separator}code=${encodeURIComponent(
+      data.code,
+    )}&state=${encodeURIComponent(state)}`;
+    await browser.tabs.create({ url: target });
     return { success: true };
   } catch (error) {
     console.error("VibeTutor: failed to open workspace", error);
@@ -684,7 +740,11 @@ function isCheckCodePayload(payload: unknown): payload is {
   if (typeof p.topics !== "object" || p.topics === null) return false;
   if (typeof p.code !== "string") return false;
   if (typeof p.action !== "string") return false;
-  if (!("problem_no" in p) || (p.problem_no !== null && typeof p.problem_no !== "number")) return false;
+  if (
+    !("problem_no" in p) ||
+    (p.problem_no !== null && typeof p.problem_no !== "number")
+  )
+    return false;
   if (typeof p.problem_name !== "string") return false;
   if (typeof p.problem_url !== "string") return false;
   return Object.values(p.topics as Record<string, unknown>).every(
@@ -703,7 +763,11 @@ function isGuideModeStatusPayload(payload: unknown): payload is {
   const p = payload as Record<string, unknown>;
   if (typeof p.enabled !== "boolean") return false;
   if (typeof p.sessionId !== "string") return false;
-  if (!("problem_no" in p) || (p.problem_no !== null && typeof p.problem_no !== "number")) return false;
+  if (
+    !("problem_no" in p) ||
+    (p.problem_no !== null && typeof p.problem_no !== "number")
+  )
+    return false;
   if (typeof p.problem_name !== "string") return false;
   if (typeof p.problem_url !== "string") return false;
   return true;
@@ -776,7 +840,6 @@ function isSummarizePayload(payload: unknown): payload is {
   return typeof maybe.summary === "string";
 }
 
-
 function isSupabaseLoginPayload(payload: unknown): payload is {
   email: string;
   password: string;
@@ -789,6 +852,29 @@ function isSupabaseLoginPayload(payload: unknown): payload is {
     password?: unknown;
   };
   return typeof maybe.email === "string" && typeof maybe.password === "string";
+}
+
+function isSupabaseSignupPayload(payload: unknown): payload is {
+  fname: string;
+  lname: string;
+  email: string;
+  password: string;
+} {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+  const maybe = payload as {
+    fname?: unknown;
+    lname?: unknown;
+    email?: unknown;
+    password?: unknown;
+  };
+  return (
+    typeof maybe.fname === "string" &&
+    typeof maybe.lname === "string" &&
+    typeof maybe.email === "string" &&
+    typeof maybe.password === "string"
+  );
 }
 
 async function supabaseLogin(payload: { email: string; password: string }) {
@@ -806,11 +892,66 @@ async function supabaseLogin(payload: { email: string; password: string }) {
     if (!response.ok || !data?.token || !data?.userId) {
       return null;
     }
-    const auth = { userId: data.userId as string, jwt: data.token as string };
+    const now = Date.now();
+    const auth = {
+      userId: data.userId as string,
+      jwt: data.token as string,
+      accessToken:
+        (data.accessToken as string | undefined) ??
+        (data.access_token as string | undefined),
+      issuedAt: now,
+      expiresAt: now + AUTH_TOKEN_TTL_MS,
+    };
     await setAuthState(auth);
     return auth;
   } catch (error) {
     console.error("VibeTutor: supabase login failed", error);
+    return null;
+  }
+}
+
+async function supabaseSignup(payload: {
+  fname: string;
+  lname: string;
+  email: string;
+  password: string;
+}) {
+  try {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fname: payload.fname,
+        lname: payload.lname,
+        email: payload.email,
+        password: payload.password,
+      }),
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!response.ok || !data) {
+      return null;
+    }
+    if (data?.requiresVerification) {
+      return { requiresVerification: true };
+    }
+    if (!data?.token || !data?.userId) {
+      return null;
+    }
+    const now = Date.now();
+    const auth = {
+      userId: data.userId as string,
+      jwt: data.token as string,
+      accessToken:
+        (data.accessToken as string | undefined) ??
+        (data.access_token as string | undefined),
+      issuedAt: now,
+      expiresAt: now + AUTH_TOKEN_TTL_MS,
+    };
+    await setAuthState(auth);
+    return auth;
+  } catch (error) {
+    console.error("VibeTutor: supabase signup failed", error);
     return null;
   }
 }

@@ -121,6 +121,7 @@ def guide_mode_disable(
     )
     flush_guide_buffer()
     r.delete(enabled_key, meta_key, topics_key)
+
 def get_token_usage(response) -> dict:
     usage = getattr(response, "usage", None)
     if not usage:
@@ -150,8 +151,7 @@ def requestingCodeCheck(
     Given the following code, perform checks.
     If faulty, explain why, which line causes it, and how to fix it.
 
-    Go through the Topics JSON part, and for the faulty lines or logic, add the faulty 
-    line under pitfalls of the respective topic you seem fit, and add the correction under thoughts_to_remember
+    Go through the Topics JSON part, and for the faulty lines or logic, add the faulty line under pitfalls of the respective topic you seem fit, and add the correction under thoughts_to_remember
 
     Return the response in the following format:
 
@@ -478,6 +478,91 @@ def requestSummarization(summary: str, summarize: list[str]) -> str:
         return ""
 
 
+def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, str]:
+    #print("summarize_topic_notes pitfalls:", pitfalls)
+    if not notes and not pitfalls:
+        return {"notes_summary": "", "pitfalls_summary": ""}
+    
+    # system_prompt = """
+    # You summarize learning notes for a programming topic.
+
+    # You will receive:
+    # - Notes (things to remember)
+    # - Pitfalls (common mistakes)
+
+    # Produce a concise, set of points from the content, that provides important insights that will help students to solve DSA problems
+
+    # Points for each, 3-6 sentences max.
+    # Return ONLY valid JSON with this exact schema:
+    # {"notes_summary": "...", "pitfalls_summary": "..."}
+    # """
+    system_prompt = """
+    You are a summarizer that converts noisy, repetitive learning logs into a clean study checklist.
+
+    You will receive two lists:
+    - Notes (things to remember)
+    - Pitfalls (common mistakes)
+
+    GOAL
+    Produce the same level of output as a human would write:
+    - de-duplicated
+    - short
+    - readable
+    - action-oriented
+    - generalized (not tied to one problem unless unavoidable)
+
+    RULES
+    1) Do NOT copy sentences verbatim from the input. Rewrite and abstract.
+    2) Merge repeated or near-duplicate ideas into ONE point.
+    3) Keep only high-signal items (skip trivial restatements).
+    4) Prefer "principles" + "common failure modes" (indexing, bounds, loop direction, API usage, etc.).
+    5) Output format:
+    - notes_summary: 5–10 bullet points, each 8–18 words, starting with a verb (e.g., "Use", "Avoid", "Check").
+    - pitfalls_summary: 5–10 bullet points, same style.
+    6) Do not include numbering, headings, or extra keys.
+    7) Return ONLY valid JSON with exactly:
+    {"notes_summary": [...], "pitfalls_summary": [...]}
+    Where both values are arrays of strings. No markdown. No trailing commentary.
+    """
+
+
+    notes_block = "\n".join(f"- {n}" for n in notes if n)
+    pitfalls_block = "\n".join(f"- {p}" for p in pitfalls if p)
+    user_prompt = f"""
+    Notes:
+    {notes_block if notes_block else "(none)"}
+
+    Pitfalls:
+    {pitfalls_block if pitfalls_block else "(none)"}
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+        )
+        raw = response.choices[0].message.content or ""
+        raw1 = parse_json_response(raw)
+        try:
+            data = parse_json_response(raw)
+            return {
+                "notes_summary": str(data.get("notes_summary") or "").strip(),
+                "pitfalls_summary": str(data.get("pitfalls_summary") or "").strip(),
+            }
+        except Exception:
+            return {
+                "notes_summary": raw.strip(),
+                "pitfalls_summary": "",
+            }
+    except Exception as e:
+        print("Topic summarization error:", e)
+        return {"notes_summary": "", "pitfalls_summary": ""}
+
+
 def _serialize_topics(topics: dict[str, TopicNotes]) -> dict[str, dict]:
     serialized: dict[str, dict] = {}
     for key, value in topics.items():
@@ -499,3 +584,13 @@ def parse_json_response(text: str) -> dict:
             text = text[start:end+1]
 
     return json.loads(text)
+
+
+# in the summarixe_topic_notes function, sometime's the raw data is like this:
+# this is the response from the llm:  {"notes_summary": "Reversing words in a string can be efficiently done using a two-pointer approach to reverse in place, saving space. When merging or alternating characters from two strings, iterating up to the minimum length prevents index errors, while appending the remaining substring of the longer string ensures completeness. Alternatively, iterating up to the maximum length with conditional checks can handle different string lengths safely. Using Math.min to determine loop limits is a reliable way to avoid out-of-bounds exceptions. In Python, avoid unnecessary semicolons and ensure variables are printed correctly without quotes or typos.", "pitfalls_summary": "Common mistakes include iterating only up to the minimum length without appending leftover characters, causing incomplete merging. Incorrect length comparisons, such as using equality checks instead of minimum length, lead to index errors or missing data. Using incorrect syntax like 'word1.length' instead of 'word1.length()' or typos in print statements can cause runtime errors or unexpected output. Additionally, printing string literals instead of variable values and unnecessary semicolons in Python code reduce code correctness
+
+
+# so the lines "notes_summary": str(data.get("notes_summary") or "").strip(),
+#                 "pitfalls_summary": str(data.get("pitfalls_summary") or "").strip(),
+# wont work because data.get wont get the pitfalls.
+

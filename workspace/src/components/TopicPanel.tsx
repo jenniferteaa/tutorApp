@@ -1,3 +1,4 @@
+import TopicSummaryLogger from "@/components/TopicSummaryLogger";
 import { TopicDetails } from "@/lib/types";
 import Link from "next/link";
 
@@ -159,6 +160,7 @@ function ProblemTimeline({
 export default function TopicPanel({ data }: { data: TopicDetails }) {
   return (
     <main className="min-h-screen bg-[#7f8582] p-10">
+      <TopicSummaryLogger topic={data.topic.slug} />
       <div className="mx-auto w-full max-w-3xl rounded-3xl bg-black/10 p-10">
         <div className="mb-6 flex items-center justify-between">
           <div className="rounded-2xl border border-black/20 bg-white px-6 py-3 shadow-sm">

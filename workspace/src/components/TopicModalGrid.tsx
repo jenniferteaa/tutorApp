@@ -20,6 +20,17 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
       }
       const data = (await res.json()) as TopicDetails;
       setActive(data);
+      try {
+        const summaryRes = await fetch(
+          `/api/topics/${encodeURIComponent(topic.slug)}/summary`,
+          { method: "POST" },
+        );
+        const summaryText = await summaryRes.text();
+        const summaryData = summaryText ? JSON.parse(summaryText) : null;
+        console.log("topic summary response:", summaryData);
+      } catch (error) {
+        console.error("topic summary fetch failed", error);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load topic");
     } finally {
