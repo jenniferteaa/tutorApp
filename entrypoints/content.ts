@@ -23,7 +23,6 @@ let isWindowOpen = false;
 let dragOffset = { x: 0, y: 0 };
 let lastPosition = { x: 0, y: 0 };
 let menuCloseTimeout: number | null = null;
-let globalLogo: string; // Global variable for smiley face URL
 let globalMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 let flushInFlight: boolean;
 let panelHideTimerId: number | null = null;
@@ -62,24 +61,8 @@ function createFloatingWidget() {
   widget = document.createElement("div");
   widget.id = "tutor-widget";
 
-  let logo: string;
-  try {
-    logo = browser.runtime.getURL("assets/logo2.png" as any);
-    globalLogo = logo;
-  } catch (error) {
-    console.warn("There is an error loading the logo: ", error);
-    const extensionId = browser.runtime.id || chrome.runtime.id;
-    logo = `chrome-extension://${extensionId}/assets/logo2.png`;
-    globalLogo = logo; // Store globally
-  }
-
-  console.log("StickyNoteAI: Image URLs:", { logo });
-  console.log("StickyNoteAI: Extension ID:", browser.runtime.id);
-  console.log("StickyNoteAI: Chrome runtime ID:", chrome.runtime.id);
-
   widget.innerHTML = `
   <div class="widget-main-button" id="main-button">
-  <img src="${logo}" alt="Widget" style="width: 24px; height: 24px;" id="logo-image">
   </div>
   `;
 
@@ -111,6 +94,7 @@ function createFloatingWidget() {
       /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
+      color: #ffffff;
     }
       .widget-main-button.dragging {
       cursor: grabbing !important;
@@ -452,6 +436,39 @@ background: #D1D5DB;
   flex: 1;
   min-width: 0;
 }
+.tutor-panel-auth .auth-password-wrap{
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+}
+.tutor-panel-auth .auth-password-wrap .auth-password{
+  width: 100%;
+  padding-right: 34px;
+}
+.tutor-panel-auth .auth-password-toggle{
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-40%);
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: rgba(0,0,0,0.55);
+  cursor: pointer;
+}
+.tutor-panel-auth .auth-password-toggle:hover{
+  color: rgba(0,0,0,0.85);
+}
+.tutor-panel-auth .auth-password-toggle svg{
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
 .tutor-panel-auth .auth-sep{
   font-weight: 700;
   color: rgba(0,0,0,0.45);
@@ -713,19 +730,6 @@ background: #D1D5DB;
   document.head.appendChild(style);
   document.body.appendChild(widget);
 
-  // Setup image loading event listeners
-  const logoImage = document.getElementById("logo-image") as HTMLImageElement;
-  //const addImage = document.getElementById("add-image") as HTMLImageElement;
-
-  if (logoImage) {
-    logoImage.addEventListener("load", () => {
-      console.log("✅ image loaded successfully");
-    });
-    logoImage.addEventListener("error", () => {
-      console.error("❌ Failed to load logo image:", logo);
-      logoImage.style.display = "none";
-    });
-  }
   setupWidgetEvents();
 }
 
@@ -1553,6 +1557,27 @@ function ensureAuthPrompt(panel: HTMLElement) {
   authBox.className = "tutor-panel-auth";
   panel.appendChild(authBox);
 
+  const setupPasswordToggle = (
+    input: HTMLInputElement | null,
+    toggle: HTMLButtonElement | null,
+  ) => {
+    if (!input || !toggle) return;
+    const update = () => {
+      const hidden = input.type === "password";
+      toggle.setAttribute(
+        "aria-label",
+        hidden ? "Show password" : "Hide password",
+      );
+    };
+    toggle.addEventListener("click", () => {
+      input.type = input.type === "password" ? "text" : "password";
+      update();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+    update();
+  };
+
   const applyAuthSuccess = async (userId: string) => {
     const currentUserId = currentTutorSession?.userId ?? "";
     const problemName =
@@ -1594,7 +1619,15 @@ function ensureAuthPrompt(panel: HTMLElement) {
       <div class="auth-error"></div>
       <h4>Login Required</h4>
       <input type="email" class="auth-email" placeholder="you@example.com" />
-      <input type="password" class="auth-password" placeholder="password" />
+      <div class="auth-password-wrap">
+        <input type="password" class="auth-password" placeholder="password" />
+        <button type="button" class="auth-password-toggle" aria-label="Show password">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">
+            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"></path>
+            <circle cx="12" cy="12" r="3.5"></circle>
+          </svg>
+        </button>
+      </div>
       <div class="auth-actions">
         <button type="button" class="auth-login">Login</button>
         <span class="auth-sep">/</span>
@@ -1607,6 +1640,9 @@ function ensureAuthPrompt(panel: HTMLElement) {
       authBox.querySelector<HTMLInputElement>(".auth-password");
     const login = authBox.querySelector<HTMLButtonElement>(".auth-login");
     const signup = authBox.querySelector<HTMLButtonElement>(".auth-signup");
+    const toggle = authBox.querySelector<HTMLButtonElement>(
+      ".auth-password-toggle",
+    );
     const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
     if (message && errorBox) {
       errorBox.textContent = message;
@@ -1618,6 +1654,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
     };
     emailInput?.addEventListener("input", clearError);
     passwordInput?.addEventListener("input", clearError);
+    setupPasswordToggle(passwordInput, toggle);
     login?.addEventListener("click", async () => {
       const email = emailInput?.value.trim() ?? "";
       const password = passwordInput?.value.trim() ?? "";
@@ -1647,7 +1684,15 @@ function ensureAuthPrompt(panel: HTMLElement) {
         <input type="text" class="auth-last-name" placeholder="Last name" />
       </div>
       <input type="email" class="auth-email" placeholder="you@example.com" />
-      <input type="password" class="auth-password" placeholder="password" />
+      <div class="auth-password-wrap">
+        <input type="password" class="auth-password" placeholder="password" />
+        <button type="button" class="auth-password-toggle" aria-label="Show password">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">
+            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"></path>
+            <circle cx="12" cy="12" r="3.5"></circle>
+          </svg>
+        </button>
+      </div>
       <div class="auth-actions">
         <button type="button" class="auth-signup-submit">Sign up</button>
         <span class="auth-sep">/</span>
@@ -1664,6 +1709,9 @@ function ensureAuthPrompt(panel: HTMLElement) {
     const signupSubmit = authBox.querySelector<HTMLButtonElement>(
       ".auth-signup-submit",
     );
+    const toggle = authBox.querySelector<HTMLButtonElement>(
+      ".auth-password-toggle",
+    );
     const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
     const clearError = () => {
       if (!errorBox) return;
@@ -1673,6 +1721,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
     lastNameInput?.addEventListener("input", clearError);
     emailInput?.addEventListener("input", clearError);
     passwordInput?.addEventListener("input", clearError);
+    setupPasswordToggle(passwordInput, toggle);
 
     signupSubmit?.addEventListener("click", async () => {
       const fname = firstNameInput?.value.trim() ?? "";
@@ -1727,7 +1776,7 @@ function createTutorPanel() {
           <button class="btn-guide-mode">Guide me</button>
           <button class="btn-help-mode">Check mode</button>
           <button class="btn-timer">Timer</button>
-          <button class="btn-gotToWorkspace">Workspace</button>
+          <button class="btn-gotToWorkspace">Notes made</button>
         </div>
       </div>
 
