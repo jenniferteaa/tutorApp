@@ -1154,10 +1154,17 @@ async function requestHistorySummary(history: SessionRollingHistoryLLM) {
         summary: history.summary,
       },
     });
-    if (typeof response === "string") {
-      history.summary = response;
-      //console.log("This is the summary: ", history.summary);
-      //console.log("This is the toSummarize: ", history.toSummarize);
+    if (
+      handleBackendError(currentTutorSession?.element ?? null, response, {
+        silent: true,
+      })
+    ) {
+      return;
+    }
+    const reply =
+      typeof response === "string" ? response : (response as any)?.reply;
+    if (typeof reply === "string") {
+      history.summary = reply;
     }
   } finally {
     summarizeInFlight = false;
@@ -1505,6 +1512,77 @@ function unlockPanel(panel: HTMLElement) {
   setPanelControlsDisabled(panel, false);
 }
 
+type BackendErrorResponse = {
+  success: false;
+  error?: string;
+  status?: number;
+  timeout?: boolean;
+  unauthorized?: boolean;
+};
+
+function isBackendErrorResponse(value: unknown): value is BackendErrorResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { success?: unknown }).success === false
+  );
+}
+
+function appendSystemMessage(panel: HTMLElement, message: string) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return;
+  const messageEl = appendPanelMessage(panel, message, "assistant");
+  if (!messageEl) return;
+  contentArea.scrollTop = messageEl.offsetTop;
+  scheduleSessionPersist(panel);
+}
+
+function handleBackendError(
+  panel: HTMLElement | null,
+  response: unknown,
+  options?: {
+    timeoutMessage?: string;
+    serverMessage?: string;
+    lockOnServerError?: boolean;
+    silent?: boolean;
+  },
+) {
+  if (!isBackendErrorResponse(response)) return false;
+  if (options?.silent) return true;
+  const target = panel ?? currentTutorSession?.element ?? null;
+  if (!target) return true;
+
+  if (
+    response.unauthorized ||
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.error && /unauthorized/i.test(response.error))
+  ) {
+    lockPanel(target);
+    ensureAuthPrompt(target);
+    appendSystemMessage(target, "Session expired. Please log in again.");
+    return true;
+  }
+
+  if (response.timeout) {
+    appendSystemMessage(
+      target,
+      options?.timeoutMessage ??
+        "The model is taking longer than usual. Please try again.",
+    );
+    return true;
+  }
+
+  const serverMessage =
+    options?.serverMessage ??
+    "Internal server error. Please try again in a moment.";
+  if (options?.lockOnServerError === true) {
+    lockPanel(target);
+  }
+  appendSystemMessage(target, serverMessage);
+  return true;
+}
+
 function showPanelLoading() {
   if (document.getElementById("tutor-panel-loading")) return;
   const loading = document.createElement("div");
@@ -1663,6 +1741,13 @@ function ensureAuthPrompt(panel: HTMLElement) {
         action: "supabase-login",
         payload: { email, password },
       });
+      if (resp?.success === false) {
+        if (errorBox) {
+          errorBox.textContent = resp.error || "Internal server error";
+          errorBox.style.display = "block";
+        }
+        return;
+      }
       if (resp?.userId && resp?.jwt) {
         await applyAuthSuccess(resp.userId);
       } else if (errorBox) {
@@ -1733,6 +1818,13 @@ function ensureAuthPrompt(panel: HTMLElement) {
         action: "supabase-signup",
         payload: { fname, lname, email, password },
       });
+      if (resp?.success === false) {
+        if (errorBox) {
+          errorBox.textContent = resp.error || "Internal server error";
+          errorBox.style.display = "block";
+        }
+        return;
+      }
       if (resp?.requiresVerification) {
         renderLoginBox("Waiting for verification, check email");
       } else if (resp?.userId && resp?.jwt) {
@@ -2010,6 +2102,15 @@ async function drainGuideQueue() {
           rollingStateGuideMode: currentTutorSession?.rollingStateGuideMode,
         },
       });
+      if (
+        handleBackendError(currentTutorSession?.element ?? null, resp, {
+          timeoutMessage:
+            "Guide mode is taking longer than usual. Please try again.",
+        })
+      ) {
+        flushInFlight = false;
+        continue;
+      }
       if (!resp) {
         console.log("failure for guide mode");
       } else {
@@ -2183,13 +2284,21 @@ async function askAnything(panel: HTMLElement, query: string) {
       query: query,
     },
   });
-  if (response) {
-    //const pretty = prettifyLlMResponse(response);
-    appendToContentPanel(panel, "", "assistant", response);
+  if (
+    handleBackendError(panel, response, {
+      timeoutMessage:
+        "The model is taking longer than usual. Please try again.",
+    })
+  ) {
+    return "Failure";
   }
-  //console.log("this is the response: ", response);
-  if (!response) return "Failure";
-  return response;
+  const reply =
+    typeof response === "string" ? response : (response as any)?.reply;
+  if (typeof reply === "string" && reply.trim()) {
+    appendToContentPanel(panel, "", "assistant", reply);
+  }
+  if (!reply) return "Failure";
+  return reply;
 }
 
 function createTimer() {}
@@ -2622,12 +2731,22 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
         problem_url: currentTutorSession?.problemUrl ?? "",
       },
     });
+    if (
+      handleBackendError(panel, response, {
+        timeoutMessage:
+          "The model is taking longer than usual. Please try again.",
+      })
+    ) {
+      return "Failure";
+    }
     const response_llm = response?.resp;
     //const pretty = prettifyLlMResponse(response_llm);
     if (currentTutorSession && typeof response_llm === "string") {
       currentTutorSession.content.push(`${response_llm}\n`);
     }
-    await appendToContentPanel(panel, "", "checkAssistant", response_llm);
+    if (typeof response_llm === "string" && response_llm.trim()) {
+      await appendToContentPanel(panel, "", "checkAssistant", response_llm);
+    }
 
     const topics = response?.topics;
     if (topics && typeof topics === "object") {
@@ -2735,9 +2854,13 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       console.warn("Workspace URL is not set.");
       return;
     }
-    await browser.runtime.sendMessage({
+    const resp = await browser.runtime.sendMessage({
       action: "go-to-workspace",
       payload: { url: WORKSPACE_URL },
+    });
+    handleBackendError(panel, resp, {
+      serverMessage: "Unable to open workspace right now.",
+      lockOnServerError: false,
     });
   });
 

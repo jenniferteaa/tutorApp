@@ -150,8 +150,10 @@ def requestingCodeCheck(
     system_prompt = """
     Given the following code, perform checks.
     If faulty, explain why, which line causes it, and how to fix it.
+    You can provide the correct code.
 
     Go through the Topics JSON part, and for the faulty lines or logic, add the faulty line under pitfalls of the respective topic you seem fit, and add the correction under thoughts_to_remember
+    Provide an output with formatted content.
 
     Return the response in the following format:
 
@@ -266,6 +268,10 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
 
     Instructions to give output:
 
+    If the individual is coding right and you do not find any errors in the focus line OR you have nothing NEW to add,
+    return exactly:
+    {"nudge":"", "topics":{}}
+
     If you do find any errors in the focus line sent, do as following:
 
     1) Go through the "thoughts_to_remember" and the "pitfalls" section under each of the Topic field sent by user
@@ -301,9 +307,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
 
     If a topic has no NEW items, do not include that topic key at all in the output.
 
-    If you do not find any errors in the focus line OR you have nothing NEW to add,
-    return exactly:
-    {"nudge":"", "topics":{}}
+    IMPORTANT Note: The topic field for the output should be very Topic specific - generic DSA concepts that will help solving leetcode problems
 
     REMEMBER: You are preparing this student to get better at solving DSA problems.
     """
@@ -515,6 +519,8 @@ def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, st
     8) Return ONLY valid JSON with exactly:
     {"notes_summary": [...], "pitfalls_summary": [...]}
     Where both values are arrays of strings. No markdown. No trailing commentary.
+
+    
     """
 
 
@@ -530,7 +536,7 @@ def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, st
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model="gpt-4.1-mini-2025-04-14",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

@@ -288,17 +288,24 @@ async function forwardGuideModeStatus(
   token: string,
 ) {
   const endpoint = payload.enabled ? "/api/guide/enable" : "/api/guide/disable";
-  const response = await fetch(`${BACKEND_BASE_URL}${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+  const result = await fetchJsonWithTimeout<{ success?: boolean; error?: string }>(
+    `${BACKEND_BASE_URL}${endpoint}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    return { success: false, error: text || "Guide mode status failed" };
+  );
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Guide mode status failed"),
+    };
   }
   return { success: true };
 }
@@ -315,52 +322,39 @@ async function forwardCodeToBackendGuideMode(
   focusLine: string,
   rollingStateGuideMode: RollingStateGuideMode,
 ) {
-  try {
-    const auth = await getAuthState();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (auth?.jwt) {
-      headers.Authorization = `Bearer ${auth.jwt}`;
-    }
-    const response = await fetch("http://127.0.0.1:8000/api/llm/guide", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        sessionId,
-        action,
-        problem,
-        topics,
-        code,
-        focusLine,
-        rollingStateGuideMode,
-      }),
-    });
-
-    const text = await response.text(); // read once
-
-    let data: any = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-      //console.log("This is the data received: ", data);
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `Backend error (${response.status}): ${
-          data?.detail ? JSON.stringify(data.detail) : text
-        }`,
-      };
-    }
-
-    return data ?? { success: true };
-  } catch (error) {
-    console.error("VibeTutor: backend request failed", error);
-    return { success: false, error: "Backend request failed" };
+  const auth = await getAuthState();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (auth?.jwt) {
+    headers.Authorization = `Bearer ${auth.jwt}`;
   }
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    reply?: unknown;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/llm/guide`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      sessionId,
+      action,
+      problem,
+      topics,
+      code,
+      focusLine,
+      rollingStateGuideMode,
+    }),
+  });
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Guide mode failed"),
+    };
+  }
+  return { success: true, ...result.data };
 }
 
 async function handleCheckCode(payload: {
@@ -385,8 +379,7 @@ async function handleCheckCode(payload: {
     payload.problem_name,
     payload.problem_url,
   );
-  //console.log("this is the data received: ", data.reply);
-  return data.reply;
+  return data;
 }
 
 async function handleAskAway(payload: {
@@ -404,8 +397,7 @@ async function handleAskAway(payload: {
     payload.summary,
     payload.query,
   );
-  console.log("this is the data received: ", data.reply);
-  return data.reply;
+  return data;
 }
 
 async function handleSummarize(payload: {
@@ -419,8 +411,7 @@ async function handleSummarize(payload: {
     payload.summarize,
     payload.summary,
   );
-  //console.log("this is the summary received: ", data.reply);
-  return data.reply;
+  return data;
 }
 
 type AuthState = {
@@ -434,6 +425,68 @@ const AUTH_STORAGE_KEY = "vibetutor-auth";
 const BACKEND_BASE_URL = "http://127.0.0.1:8000";
 const WORKSPACE_STATE_KEY = "vibetutor-workspace-state";
 const AUTH_TOKEN_TTL_MS = 30 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 15_000;
+
+type BackendFetchSuccess<T> = {
+  success: true;
+  data: T;
+  status: number;
+};
+
+type BackendFetchError = {
+  success: false;
+  error: string;
+  status?: number;
+  timeout?: boolean;
+  unauthorized?: boolean;
+};
+
+function extractErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") return fallback;
+  const data = payload as { error?: unknown; detail?: unknown; message?: unknown };
+  if (typeof data.error === "string" && data.error.trim()) return data.error;
+  if (typeof data.detail === "string" && data.detail.trim()) return data.detail;
+  if (typeof data.message === "string" && data.message.trim())
+    return data.message;
+  return fallback;
+}
+
+async function fetchJsonWithTimeout<T>(
+  url: string,
+  options: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<BackendFetchSuccess<T> | BackendFetchError> {
+  const controller = new AbortController();
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    let data: T | null = null;
+    try {
+      data = text ? (JSON.parse(text) as T) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      return {
+        success: false,
+        status: response.status,
+        unauthorized: response.status === 401 || response.status === 403,
+        error: extractErrorMessage(data ?? text, "Request failed"),
+      };
+    }
+
+    return { success: true, data: (data ?? ({} as T)), status: response.status };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { success: false, error: "Request timed out", timeout: true };
+    }
+    return { success: false, error: "Network request failed" };
+  } finally {
+    clearTimeout(timerId);
+  }
+}
 
 let authCache: AuthState | null = null;
 
@@ -499,19 +552,26 @@ async function handleGoToWorkspace(payload?: { url?: string }) {
       [WORKSPACE_STATE_KEY]: { value: state, createdAt: Date.now() },
     });
     // Here, the backend uvicorn right, if you run locally, copy that url, and put it as value for BACKEND_BASE_URL
-    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/bridge/start`, {
+    const result = await fetchJsonWithTimeout<{
+      success?: boolean;
+      code?: string;
+      error?: string;
+    }>(`${BACKEND_BASE_URL}/api/auth/bridge/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ access_token: auth.accessToken, state }),
     });
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!response.ok || !data?.code) {
-      return { success: false, error: "Workspace auth bridge failed" };
+    if (!result.success) return result;
+    if (result.data?.success === false || !result.data?.code) {
+      return {
+        success: false,
+        status: result.status,
+        error: extractErrorMessage(result.data, "Workspace auth bridge failed"),
+      };
     }
     const separator = url.includes("?") ? "&" : "?";
     const target = `${url}${separator}code=${encodeURIComponent(
-      data.code,
+      result.data.code,
     )}&state=${encodeURIComponent(state)}`;
     await browser.tabs.create({ url: target });
     return { success: true };
@@ -533,48 +593,43 @@ async function forwardCodeForCheckMode(
   problem_name: string,
   problem_url: string,
 ) {
-  try {
-    const auth = await getAuthState();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (auth?.jwt) {
-      headers.Authorization = `Bearer ${auth.jwt}`;
-    }
-    const response = await fetch("http://127.0.0.1:8000/api/llm", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        sessionId,
-        topics,
-        code,
-        action,
-        problem_no,
-        problem_name,
-        problem_url,
-      }),
-    });
-    const text = await response.text();
-    let data: any = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-      //console.log("This is the data received: ", data);
-    } catch {
-      data = null;
-    }
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `Backend error (${response.status}): ${
-          data?.detail ? JSON.stringify(data.detail) : text
-        }`,
-      };
-    }
-    return data ?? { success: true };
-  } catch (error) {
-    console.error("Code check failed", error);
-    return { success: false, error: "Backend code check request failed" };
+  const auth = await getAuthState();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (auth?.jwt) {
+    headers.Authorization = `Bearer ${auth.jwt}`;
   }
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    reply?: unknown;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/llm`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      sessionId,
+      topics,
+      code,
+      action,
+      problem_no,
+      problem_name,
+      problem_url,
+    }),
+  });
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Check mode failed"),
+    };
+  }
+  const reply = result.data?.reply;
+  if (reply && typeof reply === "object") {
+    return { success: true, ...(reply as Record<string, unknown>) };
+  }
+  return { success: true, resp: typeof reply === "string" ? reply : "" };
 }
 
 async function forwardCodeToBackend(
@@ -584,43 +639,34 @@ async function forwardCodeToBackend(
   summary: string,
   query: string,
 ) {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/api/llm/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId,
-        action,
-        rollingHistory,
-        summary,
-        query,
-      }),
-    });
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    reply?: unknown;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/llm/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId,
+      action,
+      rollingHistory,
+      summary,
+      query,
+    }),
+  });
 
-    const text = await response.text(); // read once
-
-    let data: any = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-      //console.log("This is the data received: ", data);
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `Backend error (${response.status}): ${
-          data?.detail ? JSON.stringify(data.detail) : text
-        }`,
-      };
-    }
-
-    return data ?? { success: true };
-  } catch (error) {
-    console.error("VibeTutor: backend request failed", error);
-    return { success: false, error: "Backend request failed" };
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Ask failed"),
+    };
   }
+  return {
+    success: true,
+    reply: typeof result.data?.reply === "string" ? result.data.reply : "",
+  };
 }
 
 async function forwardSummaryToBackend(
@@ -628,32 +674,27 @@ async function forwardSummaryToBackend(
   summarize: string[],
   summary: string,
 ) {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/api/llm/summarize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionID, summarize, summary }),
-    });
-    const text = await response.text();
-    let data: any = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = null;
-    }
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `Backend error (${response.status}): ${
-          data?.detail ? JSON.stringify(data.detail) : text
-        }`,
-      };
-    }
-    return data ?? { success: true };
-  } catch (error) {
-    console.error("VibeTutor: summary request failed", error);
-    return { success: false, error: "Summary request failed" };
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    reply?: unknown;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/llm/summarize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionID, summarize, summary }),
+  });
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Summarize failed"),
+    };
   }
+  return {
+    success: true,
+    reply: typeof result.data?.reply === "string" ? result.data.reply : "",
+  };
 }
 
 function handleGetTabInfo(sender: MessageSender) {
@@ -878,36 +919,41 @@ function isSupabaseSignupPayload(payload: unknown): payload is {
 }
 
 async function supabaseLogin(payload: { email: string; password: string }) {
-  try {
-    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: payload.email,
-        password: payload.password,
-      }),
-    });
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!response.ok || !data?.token || !data?.userId) {
-      return null;
-    }
-    const now = Date.now();
-    const auth = {
-      userId: data.userId as string,
-      jwt: data.token as string,
-      accessToken:
-        (data.accessToken as string | undefined) ??
-        (data.access_token as string | undefined),
-      issuedAt: now,
-      expiresAt: now + AUTH_TOKEN_TTL_MS,
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    token?: string;
+    userId?: string;
+    accessToken?: string;
+    access_token?: string;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: payload.email,
+      password: payload.password,
+    }),
+  });
+  if (!result.success) return result;
+  if (result.data?.success === false || !result.data?.token || !result.data?.userId) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Invalid creds"),
     };
-    await setAuthState(auth);
-    return auth;
-  } catch (error) {
-    console.error("VibeTutor: supabase login failed", error);
-    return null;
   }
+  const now = Date.now();
+  const auth = {
+    userId: result.data.userId as string,
+    jwt: result.data.token as string,
+    accessToken:
+      (result.data.accessToken as string | undefined) ??
+      (result.data.access_token as string | undefined),
+    issuedAt: now,
+    expiresAt: now + AUTH_TOKEN_TTL_MS,
+  };
+  await setAuthState(auth);
+  return { success: true, ...auth };
 }
 
 async function supabaseSignup(payload: {
@@ -916,44 +962,54 @@ async function supabaseSignup(payload: {
   email: string;
   password: string;
 }) {
-  try {
-    const response = await fetch(`${BACKEND_BASE_URL}/api/auth/signup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fname: payload.fname,
-        lname: payload.lname,
-        email: payload.email,
-        password: payload.password,
-      }),
-    });
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!response.ok || !data) {
-      return null;
-    }
-    if (data?.requiresVerification) {
-      return { requiresVerification: true };
-    }
-    if (!data?.token || !data?.userId) {
-      return null;
-    }
-    const now = Date.now();
-    const auth = {
-      userId: data.userId as string,
-      jwt: data.token as string,
-      accessToken:
-        (data.accessToken as string | undefined) ??
-        (data.access_token as string | undefined),
-      issuedAt: now,
-      expiresAt: now + AUTH_TOKEN_TTL_MS,
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    token?: string;
+    userId?: string;
+    accessToken?: string;
+    access_token?: string;
+    requiresVerification?: boolean;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fname: payload.fname,
+      lname: payload.lname,
+      email: payload.email,
+      password: payload.password,
+    }),
+  });
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Signup failed"),
     };
-    await setAuthState(auth);
-    return auth;
-  } catch (error) {
-    console.error("VibeTutor: supabase signup failed", error);
-    return null;
   }
+  if (result.data?.requiresVerification) {
+    return { success: true, requiresVerification: true };
+  }
+  if (!result.data?.token || !result.data?.userId) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Signup failed"),
+    };
+  }
+  const now = Date.now();
+  const auth = {
+    userId: result.data.userId as string,
+    jwt: result.data.token as string,
+    accessToken:
+      (result.data.accessToken as string | undefined) ??
+      (result.data.access_token as string | undefined),
+    issuedAt: now,
+    expiresAt: now + AUTH_TOKEN_TTL_MS,
+  };
+  await setAuthState(auth);
+  return { success: true, ...auth };
 }
 
 // Handle tab updates to reinject content script if needed

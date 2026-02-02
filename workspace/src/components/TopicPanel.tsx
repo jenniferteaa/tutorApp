@@ -1,3 +1,4 @@
+import InlineMarkdown from "@/components/InlineMarkdown";
 import { formatDateLabel, summaryToBullets } from "@/lib/text";
 import { TopicDetails } from "@/lib/types";
 import Link from "next/link";
@@ -17,7 +18,9 @@ function SummarySection({
       {items.length ? (
         <ul className="mt-3 ml-5 list-disc text-base text-black/80">
           {items.map((item, index) => (
-            <li key={index}>{item}</li>
+            <li key={index}>
+              <InlineMarkdown text={item} />
+            </li>
           ))}
         </ul>
       ) : (

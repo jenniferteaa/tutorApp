@@ -1,5 +1,6 @@
 "use client";
 
+import InlineMarkdown from "@/components/InlineMarkdown";
 import TopicTile from "@/components/TopicTile";
 import { useToast } from "@/components/ToastProvider";
 import { formatDateLabel, summaryToBullets } from "@/lib/text";
@@ -78,7 +79,9 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                   {notesSummary.length ? (
                     <ul className="ml-5 list-disc text-base text-black/80">
                       {notesSummary.map((note, index) => (
-                        <li key={index}>{note}</li>
+                        <li key={index}>
+                          <InlineMarkdown text={note} />
+                        </li>
                       ))}
                     </ul>
                   ) : (
@@ -93,7 +96,9 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                   {pitfallsSummary.length ? (
                     <ul className="ml-5 list-disc text-base text-black/80">
                       {pitfallsSummary.map((item, index) => (
-                        <li key={index}>{item}</li>
+                        <li key={index}>
+                          <InlineMarkdown text={item} />
+                        </li>
                       ))}
                     </ul>
                   ) : (

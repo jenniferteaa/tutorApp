@@ -67,6 +67,48 @@ export function summaryToBullets(summary: string) {
   return bullets;
 }
 
+type InlineToken =
+  | { type: "text"; value: string }
+  | { type: "code"; value: string }
+  | { type: "strong"; value: string };
+
+export function parseInlineMarkdown(text: string): InlineToken[] {
+  const parts = text.split("`");
+  const tokens: InlineToken[] = [];
+
+  const pushInline = (value: string) => {
+    const regex = /(\*\*[^*\n]+\*\*|'[^'\n]+')/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(value)) !== null) {
+      if (match.index > lastIndex) {
+        tokens.push({ type: "text", value: value.slice(lastIndex, match.index) });
+      }
+      const token = match[1];
+      if (token.startsWith("**")) {
+        tokens.push({ type: "strong", value: token.slice(2, -2) });
+      } else {
+        tokens.push({ type: "code", value: token.slice(1, -1) });
+      }
+      lastIndex = regex.lastIndex;
+    }
+    if (lastIndex < value.length) {
+      tokens.push({ type: "text", value: value.slice(lastIndex) });
+    }
+  };
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i] ?? "";
+    if (i % 2 === 1) {
+      if (part) tokens.push({ type: "code", value: part });
+    } else {
+      pushInline(part);
+    }
+  }
+
+  return tokens;
+}
+
 export function formatDateLabel(value?: string) {
   if (!value || value === "Unknown date") return "Unknown date";
   const normalized = value.includes("T") ? value : `${value}T00:00:00Z`;
