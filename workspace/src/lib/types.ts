@@ -4,30 +4,18 @@ export type Topic = {
   preview?: string[];
 };
 
-export type Entry = {
-  id: string;
-  problemId: number;
-  title: string;
-  text?: string;
-};
-
-export type TopicQueryRow = {
+export type TopicProblem = {
   problemNo: number;
   problemName: string;
   problemLink?: string;
-  dateTouched?: string;
-  activityCreatedAt?: string;
-  noteId: number;
-  noteCreatedAt?: string;
-  noteMade: string[];
-  pitfalls: string[];
+  latestDate?: string;
 };
 
 export type TopicDetails = {
   topic: Topic;
-  pitfalls: Entry[];
-  toRemember: Entry[];
-  rows: TopicQueryRow[];
+  notesSummary: string;
+  pitfallsSummary: string;
+  problems: TopicProblem[];
 };
 
 export type UserSummary = {

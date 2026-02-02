@@ -1,13 +1,7 @@
 import "server-only";
 
 import type { AuthSession } from "./auth";
-import {
-  Entry,
-  Topic,
-  TopicDetails,
-  TopicQueryRow,
-  UserSummary,
-} from "./types";
+import { Topic, TopicDetails, TopicProblem, UserSummary } from "./types";
 
 type ActivityRow = {
   id: number;
@@ -24,13 +18,29 @@ type ActivityRow = {
 type NoteRow = {
   id: number;
   created_at?: string | null;
-  topic_notes?: TopicNoteRow[];
+  topic_notes?: ActivityTopicNoteRow[];
 };
 
-type TopicNoteRow = {
+type ActivityTopicNoteRow = {
   note_made?: string[] | null;
   pitfalls?: string[] | null;
   topics?: { topic_name: string } | null;
+};
+
+type TopicRow = { id: number; topic_name?: string | null };
+
+type SummaryRow = {
+  notes_summary?: string | null;
+  pitfalls_summary?: string | null;
+  updated_at?: string | null;
+  last_touched_entry_id?: number | null;
+};
+
+type SummaryTopicNoteRow = {
+  note_id?: number | null;
+  note_made?: string[] | null;
+  pitfalls?: string[] | null;
+  created_at?: string | null;
 };
 
 type UserDetailsRow = {
@@ -41,6 +51,7 @@ type UserDetailsRow = {
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function buildSupabaseUrl(path: string, params: Record<string, string>) {
   const base = SUPABASE_URL?.replace(/\/$/, "");
@@ -76,6 +87,37 @@ async function supabaseFetch<T>(
     throw new Error(text || `Supabase request failed: ${res.status}`);
   }
   return (await res.json()) as T;
+}
+
+async function supabaseUpsert(
+  path: string,
+  row: Record<string, unknown>,
+  onConflict: string,
+  token: string,
+) {
+  const url = buildSupabaseUrl(path, { on_conflict: onConflict });
+  if (!url) {
+    throw new Error("SUPABASE_URL is not set");
+  }
+  if (!SUPABASE_ANON_KEY) {
+    throw new Error("SUPABASE_ANON_KEY is not set");
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify(row),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Supabase upsert failed: ${res.status}`);
+  }
+  return (await res.json()) as unknown;
 }
 
 function toSlug(value: string) {
@@ -200,7 +242,133 @@ export async function getTopicDetails(
   const resolved = requireSession(session);
   const fallbackTopic = { slug: topicSlug, label: topicSlug };
   if (!resolved) {
-    return { topic: fallbackTopic, pitfalls: [], toRemember: [], rows: [] };
+    return {
+      topic: fallbackTopic,
+      notesSummary: "",
+      pitfallsSummary: "",
+      problems: [],
+    };
+  }
+
+  const normalizedSlug = normalizeTopicSlug(topicSlug);
+  const topics = await supabaseFetch<TopicRow[]>(
+    "topics",
+    { select: "id,topic_name" },
+    resolved.token,
+  );
+  const matched = topics.find(
+    (row) => normalizeTopicSlug(row.topic_name || "") === normalizedSlug,
+  );
+  const topicId = matched?.id;
+  let resolvedLabel = matched?.topic_name?.trim() || topicSlug;
+
+  let notesSummary = "";
+  let pitfallsSummary = "";
+
+  if (topicId) {
+    const summaryRows = await supabaseFetch<SummaryRow[]>(
+      "summarization_table",
+      {
+        select: "notes_summary,pitfalls_summary,updated_at,last_touched_entry_id",
+        user_id: `eq.${resolved.userId}`,
+        topic_id: `eq.${topicId}`,
+        limit: "1",
+      },
+      resolved.token,
+    );
+    const existing = summaryRows[0];
+    notesSummary = String(existing?.notes_summary ?? "").trim();
+    pitfallsSummary = String(existing?.pitfalls_summary ?? "").trim();
+
+    const updatedAt = existing?.updated_at
+      ? Date.parse(existing.updated_at)
+      : null;
+    const hasSummary = Boolean(notesSummary || pitfallsSummary);
+    const isStale = updatedAt ? Date.now() - updatedAt >= DAY_MS : true;
+    const needsSummary = !existing || !hasSummary || isStale;
+
+    if (needsSummary) {
+      const lastTouched = existing?.last_touched_entry_id ?? 0;
+      const noteParams: Record<string, string> = {
+        select: "note_id,note_made,pitfalls,created_at",
+        topic_id: `eq.${topicId}`,
+        order: "note_id.asc",
+      };
+      if (lastTouched > 0) {
+        noteParams.note_id = `gt.${lastTouched}`;
+      }
+      if (existing?.updated_at) {
+        noteParams.created_at = `gte.${existing.updated_at}`;
+      }
+
+      const topicNotes = await supabaseFetch<SummaryTopicNoteRow[]>(
+        "topic_notes",
+        noteParams,
+        resolved.token,
+      );
+
+      const noteItems: string[] = [];
+      const pitfallItems: string[] = [];
+      let maxNoteId = lastTouched;
+      for (const row of topicNotes) {
+        if (typeof row.note_id === "number") {
+          maxNoteId = Math.max(maxNoteId, row.note_id);
+        }
+        if (Array.isArray(row.note_made)) {
+          for (const item of row.note_made) {
+            if (item && typeof item === "string") noteItems.push(item);
+          }
+        }
+        if (Array.isArray(row.pitfalls)) {
+          for (const item of row.pitfalls) {
+            if (item && typeof item === "string") pitfallItems.push(item);
+          }
+        }
+      }
+
+      const notesList = [
+        ...(notesSummary ? [notesSummary] : []),
+        ...noteItems,
+      ];
+      const pitfallsList = [
+        ...(pitfallsSummary ? [pitfallsSummary] : []),
+        ...pitfallItems,
+      ];
+
+      if (notesList.length > 0 || pitfallsList.length > 0) {
+        const backendBase =
+          process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+        const llmResponse = await fetch(
+          `${backendBase}/api/llm/topic-summary`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes: notesList, pitfalls: pitfallsList }),
+            cache: "no-store",
+          },
+        );
+        const llmText = await llmResponse.text();
+        const llmData = llmText ? JSON.parse(llmText) : null;
+        if (llmResponse.ok && llmData?.success) {
+          notesSummary = String(llmData.notes_summary || "").trim();
+          pitfallsSummary = String(llmData.pitfalls_summary || "").trim();
+          const nowIso = new Date().toISOString();
+          await supabaseUpsert(
+            "summarization_table",
+            {
+              user_id: resolved.userId,
+              topic_id: topicId,
+              notes_summary: notesSummary,
+              pitfalls_summary: pitfallsSummary,
+              last_touched_entry_id: maxNoteId,
+              updated_at: nowIso,
+            },
+            "user_id,topic_id",
+            resolved.token,
+          );
+        }
+      }
+    }
   }
 
   const rows = await supabaseFetch<ActivityRow[]>(
@@ -213,25 +381,33 @@ export async function getTopicDetails(
     resolved.token,
   );
 
-  const pitfalls: Entry[] = [];
-  const toRemember: Entry[] = [];
-  const queryRows: TopicQueryRow[] = [];
-  let resolvedLabel = topicSlug;
-  const normalizedSlug = normalizeTopicSlug(topicSlug);
-
-  // Convert the best available timestamp for ordering into a number
   const rowSortTs = (r: {
     dateTouched?: string;
     activityCreatedAt?: string;
     noteCreatedAt?: string;
   }) => {
-    // Prefer "date_touched" (a date) if present, else activity created_at, else note created_at.
-    // date_touched has no time, so interpret as end-of-day to sort correctly.
     if (r.dateTouched) return Date.parse(`${r.dateTouched}T23:59:59.999Z`);
     if (r.activityCreatedAt) return Date.parse(r.activityCreatedAt);
     if (r.noteCreatedAt) return Date.parse(r.noteCreatedAt);
     return 0;
   };
+
+  const rowDateLabel = (r: {
+    dateTouched?: string | null;
+    activityCreatedAt?: string | null;
+    noteCreatedAt?: string | null;
+  }) => r.dateTouched || r.activityCreatedAt || r.noteCreatedAt || undefined;
+
+  const problemMap = new Map<
+    number,
+    {
+      problemNo: number;
+      problemName: string;
+      problemLink?: string;
+      latestDate?: string;
+      latestTs: number;
+    }
+  >();
 
   for (const activity of rows ?? []) {
     const problemNo = activity.problems?.problem_no ?? 0;
@@ -246,78 +422,51 @@ export async function getTopicDetails(
 
         resolvedLabel = topicName;
 
-        const thoughtItems = Array.isArray(topicNote.note_made)
-          ? topicNote.note_made
-          : [];
-        const pitfallItems = Array.isArray(topicNote.pitfalls)
-          ? topicNote.pitfalls
-          : [];
-
-        const row: TopicQueryRow = {
-          problemNo,
-          problemName,
-          problemLink,
+        const ts = rowSortTs({
           dateTouched: activity.date_touched ?? undefined,
           activityCreatedAt: activity.created_at ?? undefined,
-          noteId: note.id,
           noteCreatedAt: note.created_at ?? undefined,
-          noteMade: thoughtItems.filter(Boolean),
-          pitfalls: pitfallItems.filter(Boolean),
-        };
+        });
+        const dateLabel = rowDateLabel({
+          dateTouched: activity.date_touched ?? undefined,
+          activityCreatedAt: activity.created_at ?? undefined,
+          noteCreatedAt: note.created_at ?? undefined,
+        });
 
-        queryRows.push(row);
-
-        for (const [index, text] of thoughtItems.entries()) {
-          if (!text) continue;
-          toRemember.push({
-            id: `${note.id}-t-${index}`,
-            problemId: problemNo,
-            title: problemName,
-            text,
+        const existing = problemMap.get(problemNo);
+        if (!existing) {
+          problemMap.set(problemNo, {
+            problemNo,
+            problemName,
+            problemLink,
+            latestDate: dateLabel,
+            latestTs: ts,
           });
-        }
-
-        for (const [index, text] of pitfallItems.entries()) {
-          if (!text) continue;
-          pitfalls.push({
-            id: `${note.id}-p-${index}`,
-            problemId: problemNo,
-            title: problemName,
-            text,
-          });
+        } else {
+          if (!existing.problemLink && problemLink) {
+            existing.problemLink = problemLink;
+          }
+          if (ts > existing.latestTs) {
+            existing.latestTs = ts;
+            existing.latestDate = dateLabel;
+          }
         }
       }
     }
   }
 
-  // 1) Compute "latest timestamp per problem" so problems can be ordered by recency
-  const latestByProblem = new Map<number, number>();
-  for (const r of queryRows) {
-    const ts = rowSortTs(r);
-    const prev = latestByProblem.get(r.problemNo) ?? 0;
-    if (ts > prev) latestByProblem.set(r.problemNo, ts);
-  }
-
-  // 2) Sort rows so they appear grouped by problem, ordered by most recent problem first,
-  //    and within each problem ordered by most recent entry first.
-  queryRows.sort((a, b) => {
-    const aLatest = latestByProblem.get(a.problemNo) ?? 0;
-    const bLatest = latestByProblem.get(b.problemNo) ?? 0;
-    if (aLatest !== bLatest) return bLatest - aLatest; // problem ordering
-
-    const aTs = rowSortTs(a);
-    const bTs = rowSortTs(b);
-    if (aTs !== bTs) return bTs - aTs; // within-problem ordering
-
-    // stable tie-breaker
-    return (b.noteId ?? 0) - (a.noteId ?? 0);
-  });
+  const problems: TopicProblem[] = Array.from(problemMap.values())
+    .sort((a, b) => {
+      if (a.latestTs !== b.latestTs) return b.latestTs - a.latestTs;
+      return a.problemNo - b.problemNo;
+    })
+    .map(({ latestTs, ...rest }) => rest);
 
   return {
     topic: { slug: topicSlug, label: resolvedLabel },
-    pitfalls,
-    toRemember,
-    rows: queryRows,
+    notesSummary,
+    pitfallsSummary,
+    problems,
   };
 }
 

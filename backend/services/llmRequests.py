@@ -243,7 +243,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
     nudgesSoFar = rollingStateGuideMode.nudges
 #    - Place it into EXACTLY ONE relevant topic array
     system_prompt = """
-    You are a tutor guide that helps a student write meaningful, time and space efficient code.
+    You are a tutor guide that helps an individual solve DSA problems in a meaningful, time and space efficient way.
     You will do this by monitoring each focus line sent to you, along with a code block the focus line lies within.
 
     ────────────────────────
@@ -264,44 +264,48 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         }
     }
 
+    Instructions to give output:
+
+    If you do find any errors in the focus line sent, do as following:
+
+    1) Go through the "thoughts_to_remember" and the "pitfalls" section under each of the Topic field sent by user
+    and see if the issue has already been addressed.
+    - Each pitfall has its corresponding thoughts_to_remember
+
+    IMPORTANT: Do NOT repeat or rephrase anything already present in the provided Topics JSON
+    or in the "nudges so far". If it already exists (or is essentially the same idea),
+    output nothing new for it.
+
+    2) Stick to the topics given in the input Topics JSON and DO NOT invent new topics.
+
+    3) Go through the "nudges field provided" in Topics JSON to see if the nudge you are about to provide already exists:
+        If the nudge exists, output nothing.
+        If the nudge does not exist:
+            - Provide a nudge that does not give away the solution unless it is syntax related.
+            - Help the users correcting syntax errors
+            - The nudge MUST include the fully corrected line (verbatim) in the same line.
+            Example: Focus line: "Stringbuilder st = stringbuilder();" -> nudge: "Use StringBuilder st = new StringBuilder(); because Java is case-sensitive and constructors require new."
+            - If you think the focus line can cause long term issues and is not efficient:
+                Provide a 1 liner nudge to tell the user what they can do instead without revealing the solution
+        The nudges should be 1 line, short and precise.
+        The "nudge" must be a SINGLE LINE string:
+        no newline characters, no markdown, no backticks, no code fences.
+
+    4) If you provided a nudge, there is a "pitfalls" field under each respective topic:
+    - For the topic you are providing a nudge on, first fill the pitfalls section with what the user has done, including the input.
+    - Next in the "thoughts_to_remember" section of the same topic, provide a correction for it.
+    - Both the "pitfalls" and the "thoughts_to_remember" should be a 1 liner, short and precise.
+
+
     Use the key name exactly as shown: "topics" (do not use "topics_update").
 
-    ALWAYS output both arrays for any topic you include (even if one is empty).
     If a topic has no NEW items, do not include that topic key at all in the output.
 
     If you do not find any errors in the focus line OR you have nothing NEW to add,
     return exactly:
     {"nudge":"", "topics":{}}
 
-    If you do find any errors in the focus line sent, do as following:
-
-    1) Go through the "thoughts_to_remember" and the "pitfalls" section under each of the topic
-    and see if the issue has already been addressed.
-    - Each pitfall has its corresponding thoughts_to_remember
-    IMPORTANT: Do NOT repeat or rephrase anything already present in the provided Topics JSON
-    or in the "nudges so far". If it already exists (or is essentially the same idea),
-    output nothing new for it.
-
-    2) Stick to the topics given in the input and DO NOT invent new topics.
-
-    3) Go through the "nudges field provided".
-
-    4) The nudge MUST include the fully corrected line (verbatim) in the same line.
-        Example: Focus line: "Stringbuilder st = stringbuilder();" -> nudge: "Use StringBuilder st = new StringBuilder(); because Java is case-sensitive and constructors require new."
-
-    5) If not syntax related, but if you think the focus line can cause long term issues,
-    provide a 1 liner nudge to tell the user what they can do instead.
-
-    6) The nudges should be 1 line, short and precise.
-    The "nudge" must be a SINGLE LINE string:
-    no newline characters, no markdown, no backticks, no code fences.
-
-    7) Now that the issue is addressed by you, there is a "pitfalls" field under each respective topic:
-    - For the topic you are providing a nudge on, first fill the pitfalls section with what the user has done, including the input.
-    - Next in the "thoughts_to_remember" section of the same topic, provide a solution for it.
-    - Both the "pitfalls" and the "thoughts_to_remember" should be a 1 liner, short and precise.
-
-    REMEMBER: You are preparing this student to get better at solving leetcode problems.
+    REMEMBER: You are preparing this student to get better at solving DSA problems.
     """
 
     user_prompt = f"""
@@ -380,7 +384,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
 
 def answerAskanything(rollingHistory: list[str], summary: str, query: str):
     system_prompt = """
-    You are an Assistant that helps the user with Leetcode problems and programming questions.
+    You are an Assistant that helps the user with DSA problems and programming questions.
 
     You are given:
     - A summarized context of earlier conversation windows (if provided)
@@ -390,7 +394,7 @@ def answerAskanything(rollingHistory: list[str], summary: str, query: str):
     Use the summary only as background context.
     Prioritize the recent conversation history and the current question.
 
-    If the user asks anything outside programming or Leetcode, reply exactly:
+    If the user asks anything outside programming or DSA problem solving, reply exactly:
     "This is not my scope."
     """
 
@@ -483,21 +487,8 @@ def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, st
     if not notes and not pitfalls:
         return {"notes_summary": "", "pitfalls_summary": ""}
     
-    # system_prompt = """
-    # You summarize learning notes for a programming topic.
-
-    # You will receive:
-    # - Notes (things to remember)
-    # - Pitfalls (common mistakes)
-
-    # Produce a concise, set of points from the content, that provides important insights that will help students to solve DSA problems
-
-    # Points for each, 3-6 sentences max.
-    # Return ONLY valid JSON with this exact schema:
-    # {"notes_summary": "...", "pitfalls_summary": "..."}
-    # """
     system_prompt = """
-    You are a summarizer that converts noisy, repetitive learning logs into a clean study checklist.
+    You are a summarizer that converts noisy, repetitive learning logs into a clean study checklist with good formatting.
 
     You will receive two lists:
     - Notes (things to remember)
@@ -515,12 +506,13 @@ def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, st
     1) Do NOT copy sentences verbatim from the input. Rewrite and abstract.
     2) Merge repeated or near-duplicate ideas into ONE point.
     3) Keep only high-signal items (skip trivial restatements).
-    4) Prefer "principles" + "common failure modes" (indexing, bounds, loop direction, API usage, etc.).
+    4) Prefer "principles" + "common failure modes" (indexing, bounds, loop direction, API usage, Time complexity etc.).
     5) Output format:
     - notes_summary: 5–10 bullet points, each 8–18 words, starting with a verb (e.g., "Use", "Avoid", "Check").
     - pitfalls_summary: 5–10 bullet points, same style.
     6) Do not include numbering, headings, or extra keys.
-    7) Return ONLY valid JSON with exactly:
+    7) Bolding key words is nice.
+    8) Return ONLY valid JSON with exactly:
     {"notes_summary": [...], "pitfalls_summary": [...]}
     Where both values are arrays of strings. No markdown. No trailing commentary.
     """
@@ -584,13 +576,3 @@ def parse_json_response(text: str) -> dict:
             text = text[start:end+1]
 
     return json.loads(text)
-
-
-# in the summarixe_topic_notes function, sometime's the raw data is like this:
-# this is the response from the llm:  {"notes_summary": "Reversing words in a string can be efficiently done using a two-pointer approach to reverse in place, saving space. When merging or alternating characters from two strings, iterating up to the minimum length prevents index errors, while appending the remaining substring of the longer string ensures completeness. Alternatively, iterating up to the maximum length with conditional checks can handle different string lengths safely. Using Math.min to determine loop limits is a reliable way to avoid out-of-bounds exceptions. In Python, avoid unnecessary semicolons and ensure variables are printed correctly without quotes or typos.", "pitfalls_summary": "Common mistakes include iterating only up to the minimum length without appending leftover characters, causing incomplete merging. Incorrect length comparisons, such as using equality checks instead of minimum length, lead to index errors or missing data. Using incorrect syntax like 'word1.length' instead of 'word1.length()' or typos in print statements can cause runtime errors or unexpected output. Additionally, printing string literals instead of variable values and unnecessary semicolons in Python code reduce code correctness
-
-
-# so the lines "notes_summary": str(data.get("notes_summary") or "").strip(),
-#                 "pitfalls_summary": str(data.get("pitfalls_summary") or "").strip(),
-# wont work because data.get wont get the pitfalls.
-

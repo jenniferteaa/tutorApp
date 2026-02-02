@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useFormState } from "react-dom";
+import { useActionState, useState } from "react";
 
 type AuthState = { error?: string; message?: string };
 
@@ -20,8 +19,8 @@ export default function LoginForm({
   registerAction,
 }: LoginFormProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [loginState, submitLogin] = useFormState(loginAction, emptyState);
-  const [registerState, submitRegister] = useFormState(
+  const [loginState, submitLogin] = useActionState(loginAction, emptyState);
+  const [registerState, submitRegister] = useActionState(
     registerAction,
     emptyState,
   );

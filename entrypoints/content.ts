@@ -26,6 +26,7 @@ let menuCloseTimeout: number | null = null;
 let globalLogo: string; // Global variable for smiley face URL
 let globalMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 let flushInFlight: boolean;
+let panelHideTimerId: number | null = null;
 type Pair = [string, string];
 let queue: Pair[] = [];
 let currentBatch: Pair;
@@ -63,12 +64,12 @@ function createFloatingWidget() {
 
   let logo: string;
   try {
-    logo = browser.runtime.getURL("logo.png" as any);
+    logo = browser.runtime.getURL("assets/logo2.png" as any);
     globalLogo = logo;
   } catch (error) {
     console.warn("There is an error loading the logo: ", error);
     const extensionId = browser.runtime.id || chrome.runtime.id;
-    logo = `chrome-extension://${extensionId}/logo.png`;
+    logo = `chrome-extension://${extensionId}/assets/logo2.png`;
     globalLogo = logo; // Store globally
   }
 
@@ -98,16 +99,16 @@ function createFloatingWidget() {
   .widget-main-button {
       width: 50px;
       height: 50px;
-      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      background: linear-gradient(135deg, #9CA3AF 0%, #4B5563 100%);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 20px;
       cursor: pointer;
-      box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
+      box-shadow: 0 4px 16px rgb(200, 208, 204);
       transition: all 0.3s ease;
-      border: 2px solid rgba(255, 255, 255, 0.3);
+      /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
     }
@@ -115,10 +116,10 @@ function createFloatingWidget() {
       cursor: grabbing !important;
       transform: scale(0.95);
       box-shadow: 
-        0 8px 30px rgba(153, 41, 234, 0.7),
-        0 0 25px rgba(153, 41, 234, 0.9),
-        0 0 50px rgba(204, 102, 218, 0.7),
-        0 0 80px rgba(204, 102, 218, 0.5);
+        0 8px 30px rgb(120, 126, 123),
+    /*     0 0 25px rgb(120, 126, 123), */
+    /*    0 0 50px rgba(204, 102, 218, 0.7), */
+    /*    0 0 80px rgba(204, 102, 218, 0.5); */
       animation: none;
     }
       
@@ -128,11 +129,11 @@ function createFloatingWidget() {
 
 .tutor-panel{
   position: fixed;
-  width: 450px;
-  height: 350px;
+  width: 430px;
+  height: 280px;
 
   background: #F9FAFB;
-  border-radius: 13px;
+  border-radius: 7px;
   border: none;
   box-shadow:
     0 14px 30px rgba(0,0,0,0.18),
@@ -140,7 +141,7 @@ function createFloatingWidget() {
 
   z-index: 999997;
   font-family: 'Inconsolata', ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
-  font-size: 13px;
+  font-size: 12px;
 
   transform: none;
   opacity: 0;
@@ -163,22 +164,30 @@ function createFloatingWidget() {
 }
 
 .tutor-panel-shellbar{
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 44px;
   padding: 8px 12px;
-  background: #F9FAFB;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.21);
+  background: #E5E7EB;
+  /* background: rgba(205, 201, 203, 0.40); */
+  /* background: rgba(200,208,204); */
+  border-bottom: 1px solid rgba(95, 100, 80, 0.3);
+  transition: background-color 160ms ease, box-shadow 160ms ease;
   cursor: grab;
   justify-content: flex-end;
 }
 .tutor-panel-shellbar:hover{
-background: rgba(0, 0, 0, 0.03);
+/* background: rgba(0, 0, 0, 0.03); */
+/* background: rgba(255, 255, 255, 0.75); */
+background: #D1D5DB;
 }
 
 .tutor-panel-shellbar:active{
-  background: rgba(0, 0, 0, 0.03);
+  /* background: rgb(159, 172, 164); */
+  background: #D1D5DB;
   cursor: grabbing;
 }
 
@@ -199,6 +208,10 @@ background: rgba(0, 0, 0, 0.03);
 .tutor-panel.open {
   opacity: 1;
   transform: none;
+}
+
+.tutor-panel.closing{
+  pointer-events: none;
 }
 
 .tutor-panel-loading{
@@ -260,8 +273,8 @@ background: rgba(0, 0, 0, 0.03);
   border-radius: 4px;
 
   /* background: rgba(231, 218, 225, 0.45); */
-  color: rgba(0,0,0,0.85);
-  font-size: 18px;
+  color: rgba(0,0,0,0.65);
+  font-size: 25px;
   line-height: 1;
 
   cursor: pointer;
@@ -271,7 +284,7 @@ background: rgba(0, 0, 0, 0.03);
 }
 .tutor-panel-close:hover{
   transform: scale(1.06);
-  background: rgba(205, 201, 203, 0.55);
+  background: rgba(205, 201, 203, 0.3);
 }
 
 /* Actions row */
@@ -316,7 +329,7 @@ background: rgba(0, 0, 0, 0.03);
 .btn-help-mode:active,
 .btn-timer:active,
 .btn-gotToWorkspace:active{
-  background: rgba(0, 0, 0, 0.1);
+  background: rgb(159, 172, 164);
 }
 
 
@@ -327,13 +340,13 @@ background: rgba(0, 0, 0, 0.03);
 }
 
 .btn-guide-mode.is-loading{
-  background: rgba(0, 0, 0, 0.08);
+  background: rgb(159, 172, 164);
   animation: hoverPulse 1.2s ease-in-out infinite;
 }
 
 
 .btn-help-mode.is-loading{
-  background: rgba(0, 0, 0, 0.08);
+  background: rgb(159, 172, 164);
   animation: hoverPulse 1.2s ease-in-out infinite;
   }
 
@@ -392,22 +405,20 @@ background: rgba(0, 0, 0, 0.03);
 
 .tutor-panel-auth{
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 280px;      /* smaller box */
-  padding: 12px;
- /* inset: 16px; */
+  inset: 0;
+  transform: none;
+  width: auto;
+  padding: 60px 16px 16px;
   z-index: 2;
-  padding: 12px;
- /* border: 1px dashed rgba(0,0,0,0.2); */
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(5px);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(50px);
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
+  box-sizing: border-box;
 }
 .tutor-panel-auth .auth-error{
   display: none;
@@ -421,14 +432,21 @@ background: rgba(0, 0, 0, 0.03);
   font-size: 12px;
 }
 .tutor-panel-auth .auth-actions{
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  margin-top: 6px;
+  width: 100%;
+  max-width: 320px;
 }
 .tutor-panel-auth .auth-name-row{
   display: flex;
   gap: 8px;
   width: 100%;
+  max-width: 320px;
 }
 .tutor-panel-auth .auth-name-row input{
   flex: 1;
@@ -451,6 +469,7 @@ background: rgba(0, 0, 0, 0.03);
 }
 .tutor-panel-auth input{
   width: 100%;
+  max-width: 320px;
   padding: 6px 8px;
   border: 1px solid rgba(0,0,0,0.2);
   border-radius: 6px;
@@ -461,10 +480,30 @@ background: rgba(0, 0, 0, 0.03);
   margin-top: 8px;
   padding: 6px 10px;
   border-radius: 6px;
-  border: 1px solid rgba(0,0,0,0.2);
-  background: rgba(229, 233, 226, 0.92);
   font-weight: 600;
   cursor: pointer;
+}
+.tutor-panel-auth .auth-actions button{
+  margin-top: 0;
+}
+
+.tutor-panel-auth input:focus{
+  outline: none;
+  box-shadow: none;
+  border-color: rgba(0,0,0,0.5); /* keep same border */
+}
+
+
+.tutor-panel-auth .auth-back{
+  margin-top: -6px; /* or 2px */
+}
+
+.tutor-panel-auth button{
+  color: rgba(0,0,0,0.5)
+}
+
+.tutor-panel-auth button:hover {
+  color: #000000; /* pick the text color you want on hover */
 }
 
 .tutor-panel-auth .auth-supabase{
@@ -607,10 +646,10 @@ background: rgba(0, 0, 0, 0.03);
 /* Input bar pinned at bottom */
 .tutor-panel-inputbar{
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 
-  padding: 10px 18px;
+  padding: 6px 18px;
 
   background: transparent;
   border-top: none;
@@ -619,12 +658,16 @@ background: rgba(0, 0, 0, 0.03);
 /* Textarea */
 .tutor-panel-prompt{
   flex: 1;
-  min-height: 44px;
-  height: 44px;
-  max-height: 110px;
+  min-height: 32px;
+  height: 32px;
+  max-height: 90px;
   resize: none;
-
-  padding: 12px 14px;
+  padding-top: 9px;
+  padding-right: 10px;
+  padding-bottom: 4px;
+  padding-left: 10px;
+/*  padding-top: 7px; */
+/*  padding: 6px 10px; */
   box-sizing: border-box;
 
   border-radius: 4px;
@@ -643,12 +686,13 @@ background: rgba(0, 0, 0, 0.03);
 /* Send */
 .tutor-panel-send{
   border: none;
-  background: rgba(37, 35, 35, 0.9);
+  background: #000000;
+  /* background: rgba(37, 35, 35, 0.9); */
   color: rgba(255, 255, 255, 0.95);
 
   border-radius: 4px;
-  height: 44px;
-  padding: 0 18px;
+  height: 32px;
+  padding: 0 14px;
 
   font-weight: 800;
   cursor: pointer;
@@ -663,7 +707,9 @@ background: rgba(0, 0, 0, 0.03);
 /* Align all text sizes to Enter button */
 .tutor-panel *{
   font-size: inherit;
-}`;
+}
+
+`;
   document.head.appendChild(style);
   document.body.appendChild(widget);
 
@@ -1594,16 +1640,19 @@ function ensureAuthPrompt(panel: HTMLElement) {
 
   const renderSignupBox = () => {
     authBox.innerHTML = `
-      <h4>Create account</h4>
       <div class="auth-error">Signup failed</div>
+      <h4>Create account</h4>
       <div class="auth-name-row">
         <input type="text" class="auth-first-name" placeholder="First name" />
         <input type="text" class="auth-last-name" placeholder="Last name" />
       </div>
       <input type="email" class="auth-email" placeholder="you@example.com" />
       <input type="password" class="auth-password" placeholder="password" />
-      <button type="button" class="auth-signup-submit">Sign up</button>
-      <button type="button" class="auth-back">Back to login</button>
+      <div class="auth-actions">
+        <button type="button" class="auth-signup-submit">Sign up</button>
+        <span class="auth-sep">/</span>
+        <button type="button" class="auth-back">Back to login</button>
+      </div>
     `;
     const firstNameInput =
       authBox.querySelector<HTMLInputElement>(".auth-first-name");
@@ -1686,7 +1735,7 @@ function createTutorPanel() {
 
       <div class="tutor-panel-inputbar">
         <textarea class="tutor-panel-prompt" placeholder="Ask anything..."></textarea>
-        <button class="tutor-panel-send">Enter</button>
+        <button class="tutor-panel-send">Send</button>
       </div>
     </div>
   `;
@@ -1701,18 +1750,13 @@ function createTutorPanel() {
 
   document.body.appendChild(panel);
 
-  // For now: position relative to widget (until you load saved position)
-  const widget = document.getElementById("tutor-widget");
-  if (widget) {
-    const rect = widget.getBoundingClientRect();
-    panel.style.left =
-      Math.max(20, Math.min(rect.left - 320, window.innerWidth - 340)) + "px";
-    panel.style.top =
-      Math.max(20, Math.min(rect.top, window.innerHeight - 220)) + "px";
-  } else {
-    panel.style.left = Math.max(20, (window.innerWidth - 300) / 2) + "px";
-    panel.style.top = Math.max(20, (window.innerHeight - 200) / 2) + "px";
-  }
+  // Default first-time position (bottom-left-ish), clamped to viewport
+  const defaultLeft = 40;
+  const defaultTop = Math.round(window.innerHeight * 0.38);
+  const maxLeft = window.innerWidth - panel.offsetWidth - 20;
+  const maxTop = window.innerHeight - panel.offsetHeight - 20;
+  panel.style.left = `${Math.max(20, Math.min(defaultLeft, maxLeft))}px`;
+  panel.style.top = `${Math.max(20, Math.min(defaultTop, maxTop))}px`;
 
   setTimeout(() => panel.classList.add("open"), 10);
 
@@ -2104,13 +2148,26 @@ function sendChat() {}
 function minimizeWindow() {}
 
 function showTutorPanel(panel: HTMLElement) {
+  if (panelHideTimerId !== null) {
+    window.clearTimeout(panelHideTimerId);
+    panelHideTimerId = null;
+  }
+  panel.classList.remove("closing");
   panel.style.display = "flex";
   panel.classList.add("open");
 }
 
 function hideTutorPanel(panel: HTMLElement) {
   panel.classList.remove("open");
-  panel.style.display = "none";
+  panel.classList.add("closing");
+  if (panelHideTimerId !== null) {
+    window.clearTimeout(panelHideTimerId);
+  }
+  panelHideTimerId = window.setTimeout(() => {
+    panel.style.display = "none";
+    panel.classList.remove("closing");
+    panelHideTimerId = null;
+  }, 180);
 }
 
 function positionWidgetFromPanel(panel: HTMLElement) {
@@ -2712,8 +2769,26 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   let isPanelDragging = false;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let dragTargetX = 0;
+  let dragTargetY = 0;
+  let dragRafId: number | null = null;
+  const dragEase = 0.6;
 
   const header = panel.querySelector<HTMLElement>(".tutor-panel-shellbar");
+  const tickDrag = () => {
+    if (!isPanelDragging) {
+      dragRafId = null;
+      return;
+    }
+    const currentX = panel.offsetLeft;
+    const currentY = panel.offsetTop;
+    const easedX = currentX + (dragTargetX - currentX) * dragEase;
+    const easedY = currentY + (dragTargetY - currentY) * dragEase;
+    panel.style.left = `${easedX}px`;
+    panel.style.top = `${easedY}px`;
+    dragRafId = requestAnimationFrame(tickDrag);
+  };
+
   const onMouseMove = (event: MouseEvent) => {
     if (!isPanelDragging) return;
     const nextX = event.clientX - dragOffsetX;
@@ -2721,11 +2796,12 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     const maxX = window.innerWidth - panel.offsetWidth;
     const maxY = window.innerHeight - panel.offsetHeight;
 
-    const clampedX = Math.max(10, Math.min(nextX, maxX));
-    const clampedY = Math.max(10, Math.min(nextY, maxY));
+    dragTargetX = Math.max(10, Math.min(nextX, maxX));
+    dragTargetY = Math.max(10, Math.min(nextY, maxY));
 
-    panel.style.left = `${clampedX}px`;
-    panel.style.top = `${clampedY}px`;
+    if (dragRafId === null) {
+      dragRafId = requestAnimationFrame(tickDrag);
+    }
   };
 
   const stopDragging = () => {
@@ -2733,6 +2809,12 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     isPanelDragging = false;
     document.removeEventListener("mousemove", onMouseMove);
     document.removeEventListener("mouseup", stopDragging);
+    if (dragRafId !== null) {
+      cancelAnimationFrame(dragRafId);
+      dragRafId = null;
+    }
+    panel.style.left = `${dragTargetX}px`;
+    panel.style.top = `${dragTargetY}px`;
     if (currentTutorSession) {
       currentTutorSession.position = {
         x: panel.offsetLeft,
@@ -2747,6 +2829,8 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     isPanelDragging = true;
     dragOffsetX = event.clientX - panel.getBoundingClientRect().left;
     dragOffsetY = event.clientY - panel.getBoundingClientRect().top;
+    dragTargetX = panel.offsetLeft;
+    dragTargetY = panel.offsetTop;
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", stopDragging);
   });

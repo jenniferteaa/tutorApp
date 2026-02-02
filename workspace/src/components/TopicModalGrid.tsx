@@ -1,6 +1,8 @@
 "use client";
 
 import TopicTile from "@/components/TopicTile";
+import { useToast } from "@/components/ToastProvider";
+import { formatDateLabel, summaryToBullets } from "@/lib/text";
 import type { Topic, TopicDetails } from "@/lib/types";
 import { useState } from "react";
 
@@ -8,6 +10,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
   const [active, setActive] = useState<TopicDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { pushToast } = useToast();
 
   async function openTopic(topic: Topic) {
     setLoading(true);
@@ -20,25 +23,18 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
       }
       const data = (await res.json()) as TopicDetails;
       setActive(data);
-      try {
-        const summaryRes = await fetch(
-          `/api/topics/${encodeURIComponent(topic.slug)}/summary`,
-          { method: "POST" },
-        );
-        const summaryText = await summaryRes.text();
-        const summaryData = summaryText ? JSON.parse(summaryText) : null;
-        console.log("topic summary response:", summaryData);
-      } catch (error) {
-        console.error("topic summary fetch failed", error);
-      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load topic");
+      const message =
+        err instanceof Error ? err.message : "Failed to load topic";
+      setError(message);
+      pushToast(message, "error");
     } finally {
       setLoading(false);
     }
   }
 
-  const grouped = active ? groupRowsByProblem(active.rows) : [];
+  const notesSummary = active ? summaryToBullets(active.notesSummary) : [];
+  const pitfallsSummary = active ? summaryToBullets(active.pitfallsSummary) : [];
 
   return (
     <div className="relative">
@@ -77,130 +73,72 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
 
             <div className="max-h-[70vh] overflow-y-auto pr-2">
               <div className="space-y-6">
-                {grouped.map((problem, index) => {
-                  const [latest, ...older] = problem.attempts;
-                  if (!latest) return null;
-                  return (
-                    <div
-                      key={`${problem.problemNo}-${problem.problemName}`}
-                      className="pb-6"
-                    >
-                      <div className="text-base font-bold text-lg">
-                        <span>{problem.problemName}</span>
-                        {problem.problemLink ? (
-                          <a
-                            className="ml-1 inline-flex -translate-y-0.5 items-center rounded-md px-1 py-0.5 text-base text-black/70 hover:bg-black/5"
-                            href={problem.problemLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Open problem"
-                            aria-label="Open problem"
-                          >
-                            ↗
-                          </a>
-                        ) : null}{" "}
-                        <span className="text-sm font-semibold text-black/60">
-                          — {formatDate(latest.date)}
-                        </span>
-                      </div>
+                <section className="space-y-2">
+                  <h3 className="text-lg font-semibold">Key Learnings</h3>
+                  {notesSummary.length ? (
+                    <ul className="ml-5 list-disc text-base text-black/80">
+                      {notesSummary.map((note, index) => (
+                        <li key={index}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-black/50">
+                      No summary yet.
+                    </p>
+                  )}
+                </section>
 
-                      <div className="mt-3 grid gap-6 md:grid-cols-2">
-                        <div>
-                          <div className="flex items-center gap-2 font-semibold">
-                            To Remember
-                            <span className="rounded-sm bg-black/10 px-2 py-0.5 text-xs">
-                              {latest.noteMade.length}
+                <section className="space-y-2">
+                  <h3 className="text-lg font-semibold">Mistakes to Avoid</h3>
+                  {pitfallsSummary.length ? (
+                    <ul className="ml-5 list-disc text-base text-black/80">
+                      {pitfallsSummary.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-black/50">
+                      No pitfalls captured yet.
+                    </p>
+                  )}
+                </section>
+
+                <section className="space-y-3">
+                  <h3 className="text-lg font-semibold">Problems</h3>
+                  {active.problems.length ? (
+                    <div className="space-y-3">
+                      {active.problems.map((problem) => (
+                        <div
+                          key={`${problem.problemNo}-${problem.problemName}`}
+                          className="rounded-xl bg-black/5 p-4"
+                        >
+                          <div className="text-base font-bold text-lg">
+                            <span>{problem.problemName}</span>
+                            {problem.problemLink ? (
+                              <a
+                                className="ml-1 inline-flex -translate-y-0.5 items-center rounded-md px-1 py-0.5 text-base text-black/70 hover:bg-black/5"
+                                href={problem.problemLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Open problem"
+                                aria-label="Open problem"
+                              >
+                                ↗
+                              </a>
+                            ) : null}{" "}
+                            <span className="text-sm font-semibold text-black/60">
+                              — {formatDateLabel(problem.latestDate)}
                             </span>
                           </div>
-                          <ul className="ml-5 list-disc text-black/100 text-base">
-                            {latest.noteMade.length ? (
-                              latest.noteMade.map((n, i) => (
-                                <li key={i}>{n}</li>
-                              ))
-                            ) : (
-                              <li className="text-black/50">None</li>
-                            )}
-                          </ul>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2 font-semibold">
-                            Pitfalls
-                            <span className="rounded-sm bg-black/10 px-2 py-0.5 text-xs">
-                              {latest.pitfalls.length}
-                            </span>
-                          </div>
-                          <ul className="ml-5 list-disc text-black/100 text-base">
-                            {latest.pitfalls.length ? (
-                              latest.pitfalls.map((p, i) => (
-                                <li key={i}>{p}</li>
-                              ))
-                            ) : (
-                              <li className="text-black/50">None</li>
-                            )}
-                          </ul>
-                        </div>
-                      </div>
-
-                      {older.length ? (
-                        <div className="mt-6 space-y-4 pt-4">
-                          {older.map((attempt) => (
-                            <details
-                              key={attempt.date}
-                              className="rounded-xl p-4"
-                            >
-                              <summary className="cursor-pointer text-lg font-bold text-black/50">
-                                <span>Attempt</span>{" "}
-                                <span className="text-sm font-semibold text-black/60">
-                                  — {formatDate(attempt.date)}
-                                </span>
-                              </summary>
-                              <div className="mt-4 grid gap-6 md:grid-cols-2">
-                                <div>
-                                  <div className="flex items-center gap-2 font-semibold">
-                                    To Remember
-                                    <span className="rounded-sm bg-black/10 px-2 py-0.5 text-xs">
-                                      {attempt.noteMade.length}
-                                    </span>
-                                  </div>
-                                  <ul className="ml-5 list-disc text-black/100 text-base">
-                                    {attempt.noteMade.length ? (
-                                      attempt.noteMade.map((n, i) => (
-                                        <li key={i}>{n}</li>
-                                      ))
-                                    ) : (
-                                      <li className="text-black/50">None</li>
-                                    )}
-                                  </ul>
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-2 font-semibold">
-                                    Pitfalls
-                                    <span className="rounded-sm bg-black/10 px-2 py-0.5 text-xs">
-                                      {attempt.pitfalls.length}
-                                    </span>
-                                  </div>
-                                  <ul className="ml-5 list-disc text-black/100 text-base">
-                                    {attempt.pitfalls.length ? (
-                                      attempt.pitfalls.map((p, i) => (
-                                        <li key={i}>{p}</li>
-                                      ))
-                                    ) : (
-                                      <li className="text-black/50">None</li>
-                                    )}
-                                  </ul>
-                                </div>
-                              </div>
-                            </details>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {index < grouped.length - 1 ? (
-                        <div className="mt-6 border-t border-black/10" />
-                      ) : null}
+                      ))}
                     </div>
-                  );
-                })}
+                  ) : (
+                    <p className="text-sm text-black/50">
+                      No problems yet.
+                    </p>
+                  )}
+                </section>
               </div>
             </div>
           </div>
@@ -208,88 +146,4 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
       ) : null}
     </div>
   );
-}
-
-type Attempt = {
-  date: string;
-  noteMade: string[];
-  pitfalls: string[];
-};
-
-function formatDate(value?: string) {
-  if (!value || value === "Unknown date") return "Unknown date";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function dateSortKey(value?: string) {
-  if (!value || value === "Unknown date") return 0;
-  const ts = Date.parse(`${value}T00:00:00Z`);
-  return Number.isNaN(ts) ? 0 : ts;
-}
-
-function groupRowsByProblem(rows: TopicDetails["rows"]) {
-  const problemMap = new Map<
-    string,
-    {
-      problemNo: number;
-      problemName: string;
-      problemLink?: string;
-      attempts: Map<string, Attempt>;
-    }
-  >();
-
-  for (const row of rows) {
-    const problemKey = `${row.problemNo}:${row.problemName}`;
-    if (!problemMap.has(problemKey)) {
-      problemMap.set(problemKey, {
-        problemNo: row.problemNo,
-        problemName: row.problemName,
-        problemLink: row.problemLink,
-        attempts: new Map(),
-      });
-    }
-    const entry = problemMap.get(problemKey)!;
-    if (!entry.problemLink && row.problemLink) {
-      entry.problemLink = row.problemLink;
-    }
-    const dateKey = row.dateTouched ?? "Unknown date";
-    if (!entry.attempts.has(dateKey)) {
-      entry.attempts.set(dateKey, {
-        date: dateKey,
-        noteMade: [],
-        pitfalls: [],
-      });
-    }
-    const attempt = entry.attempts.get(dateKey)!;
-    for (const note of row.noteMade) {
-      if (note && !attempt.noteMade.includes(note)) {
-        attempt.noteMade.push(note);
-      }
-    }
-    for (const pitfall of row.pitfalls) {
-      if (pitfall && !attempt.pitfalls.includes(pitfall)) {
-        attempt.pitfalls.push(pitfall);
-      }
-    }
-  }
-
-  const problems = Array.from(problemMap.values()).map((entry) => {
-    const attempts = Array.from(entry.attempts.values()).sort(
-      (a, b) => dateSortKey(b.date) - dateSortKey(a.date),
-    );
-    return { ...entry, attempts };
-  });
-
-  return problems.sort((a, b) => {
-    const aLatest = dateSortKey(a.attempts[0]?.date);
-    const bLatest = dateSortKey(b.attempts[0]?.date);
-    if (aLatest !== bLatest) return bLatest - aLatest;
-    return a.problemNo - b.problemNo;
-  });
 }
