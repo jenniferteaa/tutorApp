@@ -13,6 +13,18 @@ type LoginFormProps = {
 };
 
 const emptyState: AuthState = {};
+const passwordHintText =
+  "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
+
+function isStrongPassword(password: string) {
+  if (password.length < 8) return false;
+  if (/\s/.test(password)) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  if (!/[^A-Za-z0-9]/.test(password)) return false;
+  return true;
+}
 
 export default function LoginForm({
   loginAction,
@@ -24,6 +36,9 @@ export default function LoginForm({
     registerAction,
     emptyState,
   );
+  const [registerPasswordError, setRegisterPasswordError] = useState<
+    string | null
+  >(null);
 
   const activeState = mode === "login" ? loginState : registerState;
 
@@ -114,7 +129,21 @@ export default function LoginForm({
           </button>
         </form>
       ) : (
-        <form action={submitRegister} className="space-y-4">
+        <form
+          action={submitRegister}
+          className="space-y-4"
+          onSubmit={(event) => {
+            const form = event.currentTarget;
+            const passwordInput = form.querySelector<HTMLInputElement>(
+              'input[name="password"]',
+            );
+            const value = passwordInput?.value.trim() ?? "";
+            if (value && !isStrongPassword(value)) {
+              event.preventDefault();
+              setRegisterPasswordError(passwordHintText);
+            }
+          }}
+        >
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -161,7 +190,26 @@ export default function LoginForm({
               type="password"
               placeholder="••••••••"
               className="mt-2 w-full rounded-2xl border border-black/20 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-black/40"
+              onBlur={(event) => {
+                const value = event.currentTarget.value.trim();
+                if (value && !isStrongPassword(value)) {
+                  setRegisterPasswordError(passwordHintText);
+                } else {
+                  setRegisterPasswordError(null);
+                }
+              }}
+              onChange={(event) => {
+                const value = event.currentTarget.value.trim();
+                if (registerPasswordError && isStrongPassword(value)) {
+                  setRegisterPasswordError(null);
+                }
+              }}
             />
+            {registerPasswordError ? (
+              <p className="mt-2 text-sm text-rose-600">
+                {registerPasswordError}
+              </p>
+            ) : null}
           </div>
 
           <button

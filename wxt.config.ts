@@ -17,6 +17,7 @@ export default defineConfig({
       {
         resources: ["assets/*", "logo2.png"],
         matches: ["<all_urls>"],
+        // matches: ["https://leetcode.com/problems/*"],
       },
     ],
     commands: {},

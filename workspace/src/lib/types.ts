@@ -11,11 +11,33 @@ export type TopicProblem = {
   latestDate?: string;
 };
 
+export type Entry = {
+  id: string;
+  problemId: number;
+  title: string;
+  text?: string;
+};
+
+export type TopicQueryRow = {
+  problemNo: number;
+  problemName: string;
+  problemLink?: string;
+  dateTouched?: string;
+  activityCreatedAt?: string;
+  noteId: number;
+  noteCreatedAt?: string;
+  noteMade: string[];
+  pitfalls: string[];
+};
+
 export type TopicDetails = {
   topic: Topic;
   notesSummary: string;
   pitfallsSummary: string;
   problems: TopicProblem[];
+  rows: TopicQueryRow[];
+  toRemember: Entry[];
+  pitfalls: Entry[];
 };
 
 export type UserSummary = {

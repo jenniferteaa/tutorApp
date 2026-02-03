@@ -174,6 +174,7 @@ async function handleMessage(message: VibeTutorMessage) {
         rollingHistory: message.payload.rollingHistory,
         summary: message.payload.summary,
         query: message.payload.query,
+        language: message.payload.language,
       });
       if (!data) return "Failure";
       return data;
@@ -388,6 +389,7 @@ async function handleAskAway(payload: {
   rollingHistory: string[];
   summary: string;
   query: string;
+  language: string;
 }) {
   console.debug("VibeTutor: ask-anything payload received");
   const data = await forwardCodeToBackend(
@@ -396,6 +398,7 @@ async function handleAskAway(payload: {
     payload.rollingHistory,
     payload.summary,
     payload.query,
+    payload.language,
   );
   return data;
 }
@@ -638,6 +641,7 @@ async function forwardCodeToBackend(
   rollingHistory: string[],
   summary: string,
   query: string,
+  language: string,
 ) {
   const result = await fetchJsonWithTimeout<{
     success?: boolean;
@@ -652,6 +656,7 @@ async function forwardCodeToBackend(
       rollingHistory,
       summary,
       query,
+      language,
     }),
   });
 
@@ -839,6 +844,7 @@ function isChatPayload(payload: unknown): payload is {
   rollingHistory: string[];
   summary: string;
   query: string;
+  language: string;
 } {
   if (typeof payload !== "object" || payload === null) {
     return false;
@@ -849,6 +855,7 @@ function isChatPayload(payload: unknown): payload is {
     rollingHistory: string[];
     summary?: unknown;
     query: string;
+    language?: unknown;
   };
   if (typeof maybe.sessionId !== "string") return false;
   if (typeof maybe.query !== "string") return false;
@@ -857,7 +864,8 @@ function isChatPayload(payload: unknown): payload is {
   if (!maybe.rollingHistory.every((entry) => typeof entry === "string")) {
     return false;
   }
-  return typeof maybe.summary === "string";
+  if (typeof maybe.summary !== "string") return false;
+  return typeof maybe.language === "string";
 }
 
 function isSummarizePayload(payload: unknown): payload is {

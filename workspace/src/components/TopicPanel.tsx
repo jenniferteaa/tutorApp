@@ -1,5 +1,5 @@
 import InlineMarkdown from "@/components/InlineMarkdown";
-import { formatDateLabel, summaryToBullets } from "@/lib/text";
+import { summaryToBullets } from "@/lib/text";
 import { TopicDetails } from "@/lib/types";
 import Link from "next/link";
 
@@ -30,42 +30,135 @@ function SummarySection({
   );
 }
 
-function ProblemList({ problems }: { problems: TopicDetails["problems"] }) {
+function groupRowsByDate(
+  rows: {
+    problemNo: number;
+    problemName: string;
+    dateTouched?: string;
+    noteMade: string[];
+    pitfalls: string[];
+  }[],
+) {
+  const dateMap = new Map<
+    string,
+    Map<
+      string,
+      {
+        problemNo: number;
+        problemName: string;
+        noteMade: string[];
+        pitfalls: string[];
+      }
+    >
+  >();
+
+  for (const row of rows) {
+    const dateKey = row.dateTouched ?? "Unknown date";
+    if (!dateMap.has(dateKey)) {
+      dateMap.set(dateKey, new Map());
+    }
+    const problemMap = dateMap.get(dateKey)!;
+    const problemKey = `${row.problemNo}:${row.problemName}`;
+    if (!problemMap.has(problemKey)) {
+      problemMap.set(problemKey, {
+        problemNo: row.problemNo,
+        problemName: row.problemName,
+        noteMade: [],
+        pitfalls: [],
+      });
+    }
+    const bucket = problemMap.get(problemKey)!;
+    for (const note of row.noteMade) {
+      if (note && !bucket.noteMade.includes(note)) {
+        bucket.noteMade.push(note);
+      }
+    }
+    for (const pitfall of row.pitfalls) {
+      if (pitfall && !bucket.pitfalls.includes(pitfall)) {
+        bucket.pitfalls.push(pitfall);
+      }
+    }
+  }
+
+  return Array.from(dateMap.entries()).map(([date, problems]) => ({
+    date,
+    problems: Array.from(problems.values()).sort(
+      (a, b) => a.problemNo - b.problemNo,
+    ),
+  }));
+}
+
+function ProblemTimeline({
+  rows,
+}: {
+  rows: {
+    problemNo: number;
+    problemName: string;
+    dateTouched?: string;
+    noteMade: string[];
+    pitfalls: string[];
+  }[];
+}) {
+  const grouped = groupRowsByDate(rows);
+
+  if (!grouped.length) {
+    return (
+      <section className="rounded-2xl border border-black/20 bg-white p-6 shadow-sm">
+        <p className="text-black/60">No attempts yet.</p>
+      </section>
+    );
+  }
+
   return (
-    <section className="rounded-2xl border border-black/20 bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold">Problems</h3>
-      {problems.length ? (
-        <div className="mt-4 space-y-3">
-          {problems.map((problem) => (
+    <div className="space-y-6">
+      {grouped.map((day) => (
+        <div
+          key={day.date}
+          className="rounded-2xl border border-black/20 bg-white p-6 shadow-sm"
+        >
+          {day.problems.map((problem) => (
             <div
-              key={`${problem.problemNo}-${problem.problemName}`}
-              className="rounded-xl bg-black/5 p-4"
+              key={`${day.date}-${problem.problemNo}`}
+              className="mb-6 rounded-xl bg-black/5 p-4 last:mb-0"
             >
-              <div className="text-base font-bold text-lg">
+              <div className="mb-2 flex items-baseline gap-2 text-lg font-semibold">
                 <span>{problem.problemName}</span>
-                {problem.problemLink ? (
-                  <a
-                    className="ml-1 inline-flex -translate-y-0.5 items-center rounded-md px-1 py-0.5 text-base text-black/70 hover:bg-black/5"
-                    href={problem.problemLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Open problem"
-                    aria-label="Open problem"
-                  >
-                    ↗
-                  </a>
-                ) : null}{" "}
-                <span className="text-sm font-semibold text-black/60">
-                  — {formatDateLabel(problem.latestDate)}
+                <span className="text-sm font-semibold text-black/70">
+                  — {day.date}
                 </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <div className="font-semibold">To Remember</div>
+                  <ul className="ml-5 list-disc text-black/70">
+                    {problem.noteMade.length ? (
+                      problem.noteMade.map((note, index) => (
+                        <li key={index}>{note}</li>
+                      ))
+                    ) : (
+                      <li className="text-black/50">None</li>
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <div className="font-semibold">Pitfalls</div>
+                  <ul className="ml-5 list-disc text-black/70">
+                    {problem.pitfalls.length ? (
+                      problem.pitfalls.map((pitfall, index) => (
+                        <li key={index}>{pitfall}</li>
+                      ))
+                    ) : (
+                      <li className="text-black/50">None</li>
+                    )}
+                  </ul>
+                </div>
               </div>
             </div>
           ))}
         </div>
-      ) : (
-        <p className="mt-3 text-sm text-black/50">No problems yet.</p>
-      )}
-    </section>
+      ))}
+    </div>
   );
 }
 
@@ -97,7 +190,7 @@ export default function TopicPanel({ data }: { data: TopicDetails }) {
             items={pitfallsSummary}
             emptyText="No pitfalls captured yet."
           />
-          <ProblemList problems={data.problems} />
+          <ProblemTimeline rows={data.rows} />
         </div>
       </div>
     </main>

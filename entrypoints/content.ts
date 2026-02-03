@@ -26,6 +26,7 @@ let menuCloseTimeout: number | null = null;
 let globalMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 let flushInFlight: boolean;
 let panelHideTimerId: number | null = null;
+let suspendPanelOps = false;
 type Pair = [string, string];
 let queue: Pair[] = [];
 let currentBatch: Pair;
@@ -124,8 +125,8 @@ function createFloatingWidget() {
     0 2px 6px rgba(0,0,0,0.10);
 
   z-index: 999997;
-  font-family: 'Inconsolata', ui-monospace, "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
+  font-family: Calibri, sans-serif;
+  font-size: 13px;
 
   transform: none;
   opacity: 0;
@@ -155,23 +156,18 @@ function createFloatingWidget() {
   gap: 8px;
   min-height: 44px;
   padding: 8px 12px;
-  background: #E5E7EB;
-  /* background: rgba(205, 201, 203, 0.40); */
-  /* background: rgba(200,208,204); */
-  border-bottom: 1px solid rgba(95, 100, 80, 0.3);
+  background: rgba(0,0,0,0.1);
+  border-bottom: 1px solid rgba(0,0,0,0.1);
   transition: background-color 160ms ease, box-shadow 160ms ease;
   cursor: grab;
   justify-content: flex-end;
 }
 .tutor-panel-shellbar:hover{
-/* background: rgba(0, 0, 0, 0.03); */
-/* background: rgba(255, 255, 255, 0.75); */
-background: #D1D5DB;
+  background: rgba(0, 0, 0, 0.15);
 }
 
 .tutor-panel-shellbar:active{
-  /* background: rgb(159, 172, 164); */
-  background: #D1D5DB;
+  background: rgba(0, 0, 0, 0.15);
   cursor: grabbing;
 }
 
@@ -210,7 +206,7 @@ background: #D1D5DB;
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid rgba(0,0,0,0.15);
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: rgba(0,0,0,0.75);
   box-shadow: 0 6px 14px rgba(0,0,0,0.12);
@@ -228,6 +224,25 @@ background: #D1D5DB;
 @keyframes tutorPanelSpin{
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.tutor-panel-assistant-loading{
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+}
+
+.tutor-panel-assistant-loading-dot{
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.45);
+  animation: tutorPanelBlink 0.9s ease-in-out infinite;
+}
+
+@keyframes tutorPanelBlink{
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50% { opacity: 0.9; transform: scale(1); }
 }
 
 .tutor-panel.dragging{
@@ -258,7 +273,7 @@ background: #D1D5DB;
 
   /* background: rgba(231, 218, 225, 0.45); */
   color: rgba(0,0,0,0.65);
-  font-size: 25px;
+  font-size: 13px;
   line-height: 1;
 
   cursor: pointer;
@@ -279,7 +294,6 @@ background: #D1D5DB;
 
   /* IMPORTANT: don’t let this become a giant green slab */
   background: transparent;
-  /* background: rgba(205, 201, 203, 0.55); */
   padding: 0;
   margin: 0;
 }
@@ -290,14 +304,14 @@ background: #D1D5DB;
 .btn-timer,
 .btn-gotToWorkspace{
   border: none;
-  background: rgba(205, 201, 203, 0.40);
+  background: rgba(0,0,0,0.1);
   color: rgba(0,0,0,0.9);
 
   padding: 6px 10px;
   border-radius: 8px;
 
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 400;
   letter-spacing: 0.01em;
 
   cursor: pointer;
@@ -307,13 +321,13 @@ background: #D1D5DB;
 .btn-help-mode:not(:disabled):hover,
 .btn-timer:not(:disabled):hover,
 .btn-gotToWorkspace:not(:disabled):hover{
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.15);
 }
 .btn-guide-mode:active,
 .btn-help-mode:active,
 .btn-timer:active,
 .btn-gotToWorkspace:active{
-  background: rgb(159, 172, 164);
+  background: rgba(0,0,0,0.15);
 }
 
 
@@ -324,19 +338,20 @@ background: #D1D5DB;
 }
 
 .btn-guide-mode.is-loading{
-  background: rgb(159, 172, 164);
+  background: rgba(0,0,0,0.15);
   animation: hoverPulse 1.2s ease-in-out infinite;
 }
 
 
 .btn-help-mode.is-loading{
-  background: rgb(159, 172, 164);
+  background: rgba(0,0,0,0.15);
   animation: hoverPulse 1.2s ease-in-out infinite;
   }
 
 .tutor-panel.checkmode-active .btn-guide-mode,
 .tutor-panel.checkmode-active .btn-timer,
-.tutor-panel.checkmode-active .tutor-panel-send{
+.tutor-panel.checkmode-active .tutor-panel-send,
+.tutor-panel.checkmode-active .btn-gotToWorkspace{
   position: relative;
   pointer-events: none;
   opacity: 0.6;
@@ -349,14 +364,15 @@ background: #D1D5DB;
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
   color: rgba(0,0,0,0.7);
 }
 
 .tutor-panel.guidemode-active .btn-help-mode,
 .tutor-panel.guidemode-active .btn-timer,
-.tutor-panel.guidemode-active .tutor-panel-send{
+.tutor-panel.guidemode-active .tutor-panel-send,
+.tutor-panel.guidemode-active .btn-gotToWorkspace{
   position: relative;
   pointer-events: none;
   opacity: 0.6;
@@ -369,7 +385,7 @@ background: #D1D5DB;
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
   color: rgba(0,0,0,0.7);
 }
@@ -385,6 +401,7 @@ background: #D1D5DB;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  font-size: 13px;
 }
 
 .tutor-panel-auth{
@@ -413,7 +430,15 @@ background: #D1D5DB;
  /* background: rgba(244, 67, 54, 0.12); */
   color: rgba(195, 49, 38, 0.95);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 13px;
+}
+.tutor-panel-auth .auth-password-hint{
+  display: none;
+  width: 100%;
+  margin: 6px 0 0 0;
+  color: rgba(195, 49, 38, 0.95);
+  /* font-weight: 100; */
+  font-size: 13px;
 }
 .tutor-panel-auth .auth-actions{
   display: flex;
@@ -476,12 +501,12 @@ background: #D1D5DB;
 }
 .tutor-panel-auth h4{
   margin: 0 0 8px 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 .tutor-panel-auth label{
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin: 6px 0 2px;
 }
 .tutor-panel-auth input{
@@ -536,7 +561,7 @@ background: #D1D5DB;
  /* border: 1px solid rgba(0,0,0,0.08); */
   border-radius: 4px;
   color: rgba(0,0,0,0.86);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -550,17 +575,59 @@ background: #D1D5DB;
 
 .tutor-panel-message--guideAssistant{
   border: none;
-  /*background: rgba(15, 23, 42, 0.06); */
-  background: transparent;
-  border-radius: 7px;
-  align-self: flex-start;
+  background: rgba(0,0,0,0.03); /* or transparent if you want none */
+  border-radius: 3px;
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
 }
 
+
+/*
+.tutor-panel-message--guideAssistant{
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+} */
+
+.guide-wrapper{
+  align-self: stretch;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.guide-wrapper.guide-slab{
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.guide-list{
+  margin: 0;
+  padding-left: 18px;
+}
+
+.guide-item{
+  margin: 0 0 8px 0;
+}
+
+.guide-item:last-child{
+  margin-bottom: 0;
+}
+
+
+/*
 .guide-wrapper{
   align-self: flex-start;
   display: flex;
   flex-direction: column;
-}
+} */
 
 /* Border + GAP live here */
 .guide-wrapper.guide-start{
@@ -569,11 +636,12 @@ background: #D1D5DB;
   padding-top: 14px;
 }
 
+/*
 .guide-wrapper.guide-end{
   /* border-bottom: 1px solid rgba(0,0,0,0.08); */
   margin-bottom: 14px;
   padding-bottom: 14px;
-}
+} */
 
 .tutor-panel-message--checkAssistant{
   border: none;
@@ -596,11 +664,28 @@ background: #D1D5DB;
   padding-top: 14px;
 }
 
+/*
 .check-wrapper.check-end{
   /* border-bottom: 1px solid rgba(0,0,0,0.08); */
   margin-bottom: 14px;
   padding-bottom: 14px;
+} */
+
+/* START separators */
+.guide-wrapper.guide-start,
+.check-wrapper.check-start{
+  margin-top: 12px;
+  padding-top: 12px;
 }
+
+/* END separators — tighter */
+.guide-wrapper.guide-end,
+.check-wrapper.check-end{
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+}
+
+
 .tutor-panel-message--checkAssistant{
   /* background: rgba(0, 0, 0, 0.06); */ /* a bit warmer/neutral */
  /* background: rgba(0, 0, 0, 0.04); */
@@ -620,10 +705,16 @@ background: #D1D5DB;
   padding: 10px 10px;
   max-width: 75%;
   border-radius: 9px;
-  background: rgba(205, 201, 203, 0.55);
+  background: rgba(0,0,0,0.1);
 }
 
 .tutor-panel-message p{
+  margin: 0 0 10px 0;
+}
+.tutor-panel-message h1,
+.tutor-panel-message h2,
+.tutor-panel-message h3{
+  font-size: 1em;
   margin: 0 0 10px 0;
 }
 .tutor-panel-message p:last-child{
@@ -641,6 +732,7 @@ background: #D1D5DB;
   font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", "Menlo", monospace;
   background: rgba(0,0,0,0.06);
   padding: 1px 4px;
+  font-size: 12px;
   border-radius: 4px;
 }
 .tutor-panel-message strong{
@@ -652,6 +744,8 @@ background: #D1D5DB;
   border-radius: 8px;
   overflow: auto;
   white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .tutor-panel-message pre code{
   background: transparent;
@@ -683,22 +777,15 @@ background: #D1D5DB;
   padding-right: 10px;
   padding-bottom: 4px;
   padding-left: 10px;
-/*  padding-top: 7px; */
-/*  padding: 6px 10px; */
   box-sizing: border-box;
 
   border-radius: 4px;
-  /* border: 1px solid rgba(0,0,0,0.16); */
   outline: none;
 
   background: rgba(0, 0, 0, 0.04);
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.2;
 }
-/* .tutor-panel-prompt:focus{
-  border-color: rgba(0,0,0,0.3);
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
-} */
 
 /* Send */
 .tutor-panel-send{
@@ -716,10 +803,7 @@ background: #D1D5DB;
   transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
   white-space: nowrap;
 }
-/*
-.tutor-panel-send:active{
-  transform: translateY(0px);
-} */
+
 
 /* Align all text sizes to Enter button */
 .tutor-panel *{
@@ -976,6 +1060,153 @@ function getProblemNumberFromTitle(title: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+function isStrongPassword(password: string): boolean {
+  if (password.length < 8) return false;
+  if (/\s/.test(password)) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  if (!/[^A-Za-z0-9]/.test(password)) return false;
+  return true;
+}
+
+const CANONICAL_TOPICS = [
+  "Array",
+  "String",
+  "Hash Table",
+  "Math",
+  "Dynamic Programming",
+  "Sorting",
+  "Greedy",
+  "Depth-First Search",
+  "Binary Search",
+  "Database",
+  "Matrix",
+  "Bit Manipulation",
+  "Tree",
+  "Breadth-First Search",
+  "Two Pointers",
+  "Prefix Sum",
+  "Heap (Priority Queue)",
+  "Simulation",
+  "Counting",
+  "Graph Theory",
+  "Binary Tree",
+  "Stack",
+  "Sliding Window",
+  "Enumeration",
+  "Design",
+  "Backtracking",
+  "Union-Find",
+  "Number Theory",
+  "Linked List",
+  "Ordered Set",
+  "Segment Tree",
+  "Monotonic Stack",
+  "Trie",
+  "Divide and Conquer",
+  "Combinatorics",
+  "Bitmask",
+  "Recursion",
+  "Queue",
+  "Geometry",
+  "Binary Indexed Tree",
+  "Memoization",
+  "Hash Function",
+  "Binary Search Tree",
+  "Shortest Path",
+  "String Matching",
+  "Topological Sort",
+  "Rolling Hash",
+  "Game Theory",
+  "Interactive",
+  "Data Stream",
+  "Monotonic Queue",
+  "Brainteaser",
+  "Doubly-Linked List",
+  "Merge Sort",
+  "Randomized",
+  "Counting Sort",
+  "Iterator",
+  "Concurrency",
+  "Quickselect",
+  "Suffix Array",
+  "Sweep Line",
+  "Probability and Statistics",
+  "Minimum Spanning Tree",
+  "Bucket Sort",
+  "Shell",
+  "Reservoir Sampling",
+  "Strongly Connected Component",
+  "Eulerian Circuit",
+  "Radix Sort",
+  "Rejection Sampling",
+  "Biconnected Component",
+];
+
+function normalizeTopicKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[_/]+/g, " ")
+    .replace(/-/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const CANONICAL_TOPIC_MAP = new Map(
+  CANONICAL_TOPICS.map((topic) => [normalizeTopicKey(topic), topic]),
+);
+
+function titleCaseTopic(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function resolveTopicLabel(raw: string): string {
+  const key = normalizeTopicKey(raw);
+  if (!key) return raw.trim();
+  const direct = CANONICAL_TOPIC_MAP.get(key);
+  if (direct) return direct;
+
+  const parts = key.split(" ");
+  if (parts.length > 0) {
+    const last = parts[parts.length - 1];
+    if (last.endsWith("s")) {
+      parts[parts.length - 1] = last.slice(0, -1);
+      const singularKey = parts.join(" ");
+      const match = CANONICAL_TOPIC_MAP.get(singularKey);
+      if (match) return match;
+    } else {
+      parts[parts.length - 1] = `${last}s`;
+      const pluralKey = parts.join(" ");
+      const match = CANONICAL_TOPIC_MAP.get(pluralKey);
+      if (match) return match;
+    }
+  }
+
+  return titleCaseTopic(key);
+}
+
+function ensureTopicBucket(session: TutorSession, topic: string): string {
+  const normalized = resolveTopicLabel(topic);
+  const existingKey = Object.keys(session.topics).find(
+    (key) => resolveTopicLabel(key) === normalized,
+  );
+  if (existingKey && existingKey !== normalized) {
+    session.topics[normalized] = session.topics[existingKey];
+    delete session.topics[existingKey];
+  }
+  session.topics[normalized] ??= {
+    thoughts_to_remember: [],
+    pitfalls: [],
+  };
+  return normalized;
+}
+
 function getSessionStorageKey(userId: string, problemName: string): string {
   return `${SESSION_STORAGE_KEY}:${encodeURIComponent(
     userId,
@@ -990,9 +1221,8 @@ function getRollingTopicsFromPage(): Record<
   const topicsList = Array.from(topicElements)
     .map((el) => el.getAttribute("href"))
     .filter((href): href is string => !!href)
-    .map((href) =>
-      href.replace("/tag/", "").replace("/", "").replace("-", "_"),
-    );
+    .map((href) => href.replace("/tag/", "").replace("/", ""))
+    .map((slug) => resolveTopicLabel(slug));
 
   return Object.fromEntries(
     Array.from(new Set(topicsList)).map((t) => [
@@ -1000,6 +1230,66 @@ function getRollingTopicsFromPage(): Record<
       { thoughts_to_remember: [], pitfalls: [] },
     ]),
   );
+}
+
+function getEditorLanguageFromPage(): string {
+  const editor = document.querySelector("#editor");
+  if (!editor) return "";
+
+  const button = editor.querySelector('button[aria-haspopup="dialog"]');
+  if (!button) return "";
+
+  const textNode = Array.from(button.childNodes).find(
+    (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
+  );
+  return textNode?.textContent?.trim() ?? button.textContent?.trim() ?? "";
+}
+
+const LANGUAGE_BUTTON_SELECTOR = '#editor button[aria-haspopup="dialog"]';
+let languageObserver: MutationObserver | null = null;
+let languageObserverTarget: HTMLElement | null = null;
+
+function syncSessionLanguageFromPage() {
+  if (!currentTutorSession) return;
+  const language = getEditorLanguageFromPage();
+  if (!language) return;
+  if (currentTutorSession.language === language) return;
+  currentTutorSession.language = language;
+  scheduleSessionPersist(currentTutorSession.element ?? null);
+}
+
+function ensureLanguageObserver() {
+  const button = document.querySelector<HTMLElement>(LANGUAGE_BUTTON_SELECTOR);
+  if (!button) return;
+
+  if (!button.dataset.tutorLangListener) {
+    button.dataset.tutorLangListener = "true";
+    button.addEventListener(
+      "click",
+      () => {
+        window.setTimeout(syncSessionLanguageFromPage, 50);
+      },
+      { passive: true },
+    );
+  }
+
+  if (languageObserverTarget === button && languageObserver) {
+    syncSessionLanguageFromPage();
+    return;
+  }
+
+  languageObserver?.disconnect();
+  languageObserverTarget = button;
+  languageObserver = new MutationObserver(() => {
+    syncSessionLanguageFromPage();
+  });
+  languageObserver.observe(button, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+
+  syncSessionLanguageFromPage();
 }
 
 function buildFreshSession(
@@ -1015,6 +1305,7 @@ function buildFreshSession(
     userId,
     problem: title,
     problemUrl: getCanonicalProblemUrl(window.location.href),
+    language: getEditorLanguageFromPage(),
     topics: getRollingTopicsFromPage(),
     content: [],
     prompt: "",
@@ -1049,13 +1340,18 @@ async function openTutorPanel() {
     currentTutorSession.element &&
     document.body.contains(currentTutorSession.element)
   ) {
+    ensureLanguageObserver();
+    syncSessionLanguageFromPage();
     showTutorPanel(currentTutorSession.element);
     hideWidget();
     isWindowOpen = true;
     highlightExistingPanel(currentTutorSession.element);
     if (!authUserId || authExpired) {
       lockPanel(currentTutorSession.element);
-      ensureAuthPrompt(currentTutorSession.element);
+      ensureAuthPrompt(
+        currentTutorSession.element,
+        authExpired ? "session expired, please log back in" : undefined,
+      );
     }
     markUserActivity();
     scheduleSessionPersist(currentTutorSession.element);
@@ -1089,13 +1385,18 @@ async function openTutorPanel() {
     const tutorPanel = createTutorPanel();
     applyStoredSessionToPanel(tutorPanel, pendingStoredSession);
     pendingStoredSession = null;
+    ensureLanguageObserver();
+    syncSessionLanguageFromPage();
     showTutorPanel(tutorPanel);
     hideWidget();
     isWindowOpen = true;
     markUserActivity();
     if (!authUserId || authExpired) {
       lockPanel(tutorPanel); // #lockpanel
-      ensureAuthPrompt(tutorPanel);
+      ensureAuthPrompt(
+        tutorPanel,
+        authExpired ? "session expired, please log back in" : undefined,
+      );
     }
     scheduleSessionPersist(tutorPanel);
     return;
@@ -1107,6 +1408,7 @@ async function openTutorPanel() {
     return;
   }
   currentTutorSession = buildFreshSession(tutorPanel, authUserId);
+  ensureLanguageObserver();
   showTutorPanel(tutorPanel);
   hideWidget();
   isWindowOpen = true;
@@ -1115,7 +1417,10 @@ async function openTutorPanel() {
   if (!currentTutorSession) return;
   if (!authUserId || authExpired) {
     lockPanel(tutorPanel);
-    ensureAuthPrompt(tutorPanel);
+    ensureAuthPrompt(
+      tutorPanel,
+      authExpired ? "session expired, please log back in" : undefined,
+    );
   } else {
     currentTutorSession.userId = authUserId;
   }
@@ -1191,6 +1496,7 @@ type TutorSession = {
   content: string[];
   problem: string;
   problemUrl: string;
+  language: string;
   topics: Record<
     string,
     { thoughts_to_remember: string[]; pitfalls: string[] }
@@ -1279,6 +1585,7 @@ async function saveSessionState(
       sessionId: currentTutorSession.sessionId,
       userId: currentTutorSession.userId,
       content: currentTutorSession.content,
+      language: currentTutorSession.language,
       problem: currentTutorSession.problem,
       problemUrl: currentTutorSession.problemUrl,
       topics: currentTutorSession.topics,
@@ -1376,6 +1683,9 @@ function applyStoredSessionToPanel(
   stored: StoredTutorSession,
 ) {
   currentTutorSession = { ...stored.state, element: panel };
+  if (currentTutorSession && !currentTutorSession.language) {
+    currentTutorSession.language = getEditorLanguageFromPage();
+  }
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (contentArea) {
     contentArea.innerHTML = stored.contentHtml || "";
@@ -1394,12 +1704,19 @@ function applyStoredSessionToPanel(
     panel.style.width = `${currentTutorSession.size.width}px`;
     panel.style.height = `${currentTutorSession.size.height}px`;
   }
-  const guideWrappers = panel.querySelectorAll(".guide-wrapper");
-  guideMessageCount = guideWrappers.length;
-  lastGuideMessageEl =
-    guideWrappers.length > 0
-      ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
-      : null;
+  const guideSlab = panel.querySelector<HTMLElement>(".guide-wrapper.guide-slab");
+  if (guideSlab) {
+    const items = guideSlab.querySelectorAll(".guide-item");
+    guideMessageCount = items.length;
+    lastGuideMessageEl = guideSlab;
+  } else {
+    const guideWrappers = panel.querySelectorAll(".guide-wrapper");
+    guideMessageCount = guideWrappers.length;
+    lastGuideMessageEl =
+      guideWrappers.length > 0
+        ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
+        : null;
+  }
 }
 
 function resetPanelForUser(
@@ -1464,7 +1781,7 @@ async function logoutForInactivity() {
     detachGuideListeners();
     panel.classList.remove("guidemode-active", "checkmode-active");
     lockPanel(panel);
-    ensureAuthPrompt(panel);
+    ensureAuthPrompt(panel, "session expired, please log back in");
   }
 }
 
@@ -1502,6 +1819,24 @@ function resetGuideState() {
   lastGuideMessageEl = null;
 }
 
+function stopPanelOperations(panel: HTMLElement) {
+  queue = [];
+  flushInFlight = false;
+  resetGuideState();
+  detachGuideListeners();
+  panel.querySelectorAll(".tutor-panel-assistant-loading").forEach((el) => {
+    el.remove();
+  });
+  if (currentTutorSession) {
+    currentTutorSession.guideModeEnabled = false;
+    currentTutorSession.checkModeEnabled = false;
+    currentTutorSession.timerEnabled = false;
+  }
+  panel.classList.remove("guidemode-active", "checkmode-active");
+  panel.querySelector(".btn-guide-mode")?.classList.remove("is-loading");
+  panel.querySelector(".btn-help-mode")?.classList.remove("is-loading");
+}
+
 function lockPanel(panel: HTMLElement) {
   panel.classList.add("tutor-panel-locked");
   setPanelControlsDisabled(panel, true);
@@ -1520,12 +1855,27 @@ type BackendErrorResponse = {
   unauthorized?: boolean;
 };
 
+const SESSION_EXPIRED_MESSAGE = "session expired, please log back in";
+
 function isBackendErrorResponse(value: unknown): value is BackendErrorResponse {
   return (
     typeof value === "object" &&
     value !== null &&
     (value as { success?: unknown }).success === false
   );
+}
+
+function removeSessionExpiredMessage(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return;
+  const messages = contentArea.querySelectorAll<HTMLElement>(
+    ".tutor-panel-message--assistant",
+  );
+  messages.forEach((message) => {
+    if (message.textContent?.trim() === SESSION_EXPIRED_MESSAGE) {
+      message.remove();
+    }
+  });
 }
 
 function appendSystemMessage(panel: HTMLElement, message: string) {
@@ -1559,8 +1909,15 @@ function handleBackendError(
     (response.error && /unauthorized/i.test(response.error))
   ) {
     lockPanel(target);
-    ensureAuthPrompt(target);
-    appendSystemMessage(target, "Session expired. Please log in again.");
+    ensureAuthPrompt(target, SESSION_EXPIRED_MESSAGE);
+    if (!isWindowOpen) {
+      showTutorPanel(target);
+      hideWidget();
+      isWindowOpen = true;
+      markUserActivity();
+      scheduleSessionPersist(target);
+    }
+    removeSessionExpiredMessage(target);
     return true;
   }
 
@@ -1628,8 +1985,20 @@ function startProblemUrlWatcher() {
   }, 1000);
 }
 
-function ensureAuthPrompt(panel: HTMLElement) {
-  if (panel.querySelector(".tutor-panel-auth")) return;
+function ensureAuthPrompt(panel: HTMLElement, message?: string) {
+  const existing = panel.querySelector<HTMLElement>(".tutor-panel-auth");
+  if (existing) {
+    if (message) {
+      const errorBox = existing.querySelector<HTMLElement>(".auth-error");
+      if (errorBox) {
+        errorBox.textContent = message;
+        errorBox.style.display = "block";
+      }
+    }
+    return;
+  }
+  suspendPanelOps = true;
+  stopPanelOperations(panel);
 
   const authBox = document.createElement("div");
   authBox.className = "tutor-panel-auth";
@@ -1660,6 +2029,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
     const currentUserId = currentTutorSession?.userId ?? "";
     const problemName =
       currentTutorSession?.problem ?? getProblemTitleFromPage();
+    suspendPanelOps = false;
 
     if (currentUserId && currentUserId === userId) {
       sessionRestorePending = false;
@@ -1778,6 +2148,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
           </svg>
         </button>
       </div>
+      <div class="auth-password-hint"></div>
       <div class="auth-actions">
         <button type="button" class="auth-signup-submit">Sign up</button>
         <span class="auth-sep">/</span>
@@ -1798,6 +2169,9 @@ function ensureAuthPrompt(panel: HTMLElement) {
       ".auth-password-toggle",
     );
     const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
+    const passwordHint = authBox.querySelector<HTMLElement>(
+      ".auth-password-hint",
+    );
     const clearError = () => {
       if (!errorBox) return;
       errorBox.style.display = "none";
@@ -1807,6 +2181,24 @@ function ensureAuthPrompt(panel: HTMLElement) {
     emailInput?.addEventListener("input", clearError);
     passwordInput?.addEventListener("input", clearError);
     setupPasswordToggle(passwordInput, toggle);
+    passwordInput?.addEventListener("blur", () => {
+      if (!passwordHint || !passwordInput) return;
+      const value = passwordInput.value.trim();
+      if (value && !isStrongPassword(value)) {
+        passwordHint.textContent =
+          "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
+        passwordHint.style.display = "block";
+      } else {
+        passwordHint.style.display = "none";
+      }
+    });
+    passwordInput?.addEventListener("input", () => {
+      if (!passwordHint || !passwordInput) return;
+      const value = passwordInput.value.trim();
+      if (value && isStrongPassword(value)) {
+        passwordHint.style.display = "none";
+      }
+    });
 
     signupSubmit?.addEventListener("click", async () => {
       const fname = firstNameInput?.value.trim() ?? "";
@@ -1814,6 +2206,14 @@ function ensureAuthPrompt(panel: HTMLElement) {
       const email = emailInput?.value.trim() ?? "";
       const password = passwordInput?.value.trim() ?? "";
       if (!fname || !lname || !email || !password) return;
+      if (!isStrongPassword(password)) {
+        if (passwordHint) {
+          passwordHint.textContent =
+            "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
+          passwordHint.style.display = "block";
+        }
+        return;
+      }
       const resp = await browser.runtime.sendMessage({
         action: "supabase-signup",
         payload: { fname, lname, email, password },
@@ -1840,7 +2240,7 @@ function ensureAuthPrompt(panel: HTMLElement) {
     });
   };
 
-  renderLoginBox();
+  renderLoginBox(message);
 }
 
 type PanelPosition = { x: number; y: number };
@@ -2083,9 +2483,17 @@ function getLineByNumber(code: string, lineNumber: number) {
 
 async function drainGuideQueue() {
   if (guideDrainInFlight) return;
+  if (suspendPanelOps) {
+    queue = [];
+    return;
+  }
   guideDrainInFlight = true;
   try {
     while (queue.length > 0) {
+      if (suspendPanelOps) {
+        queue = [];
+        break;
+      }
       const [code, focusLine] = queue.shift()!;
       console.log("This is the focus line: ", focusLine); // this is not the one, get the correct focus line
       console.log("the code so far: ", code);
@@ -2140,11 +2548,15 @@ async function drainGuideQueue() {
         }
 
         const topics = reply?.topics;
-        if (topics && typeof topics === "object") {
+        if (topics && typeof topics === "object" && currentTutorSession) {
           for (const [topic, raw] of Object.entries(
             topics as Record<string, unknown>,
           )) {
             if (!raw || typeof raw !== "object") continue;
+            const normalizedTopic = ensureTopicBucket(
+              currentTutorSession,
+              topic,
+            );
 
             const thoughts = (raw as { thoughts_to_remember?: unknown })
               .thoughts_to_remember;
@@ -2163,18 +2575,15 @@ async function drainGuideQueue() {
                 : [];
 
             if (!currentTutorSession) continue;
-            currentTutorSession.topics[topic] ??= {
-              thoughts_to_remember: [],
-              pitfalls: [],
-            };
-
             if (thoughtValues.length > 0) {
-              currentTutorSession.topics[topic].thoughts_to_remember.push(
-                ...thoughtValues,
-              );
+              currentTutorSession.topics[
+                normalizedTopic
+              ].thoughts_to_remember.push(...thoughtValues);
             }
             if (pitfallValues.length > 0) {
-              currentTutorSession.topics[topic].pitfalls.push(...pitfallValues);
+              currentTutorSession.topics[normalizedTopic].pitfalls.push(
+                ...pitfallValues,
+              );
             }
           }
         }
@@ -2272,8 +2681,23 @@ function detachGuideListeners() {
 
 function highlightAskArea() {}
 
+function showAssistantLoading(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return null;
+  const wrapper = document.createElement("div");
+  wrapper.className = "tutor-panel-assistant-loading";
+  const dot = document.createElement("div");
+  dot.className = "tutor-panel-assistant-loading-dot";
+  wrapper.appendChild(dot);
+  contentArea.appendChild(wrapper);
+  contentArea.scrollTop = wrapper.offsetTop;
+  return wrapper;
+}
+
 async function askAnything(panel: HTMLElement, query: string) {
   //console.log("this is the query asked: ", query);
+  const loadingEl = showAssistantLoading(panel);
+  const language = currentTutorSession?.language || getEditorLanguageFromPage();
   const response = await browser.runtime.sendMessage({
     action: "ask-anything",
     payload: {
@@ -2282,6 +2706,7 @@ async function askAnything(panel: HTMLElement, query: string) {
       rollingHistory: currentTutorSession?.sessionRollingHistory.qaHistory,
       summary: currentTutorSession?.sessionRollingHistory.summary ?? "",
       query: query,
+      language,
     },
   });
   if (
@@ -2290,13 +2715,16 @@ async function askAnything(panel: HTMLElement, query: string) {
         "The model is taking longer than usual. Please try again.",
     })
   ) {
+    loadingEl?.remove();
     return "Failure";
   }
   const reply =
     typeof response === "string" ? response : (response as any)?.reply;
   if (typeof reply === "string" && reply.trim()) {
+    loadingEl?.remove();
     appendToContentPanel(panel, "", "assistant", reply);
   }
+  loadingEl?.remove();
   if (!reply) return "Failure";
   return reply;
 }
@@ -2477,15 +2905,16 @@ function renderTextMarkdown(text: string) {
 }
 
 function renderMarkdown(message: string) {
+  const normalized = message.replace(/\r\n/g, "\n");
   const parts: { type: "text" | "code"; content: string; lang?: string }[] = [];
-  const fence = /```(\w+)?\n([\s\S]*?)```/g;
+  const fence = /```(\w+)?\r?\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = fence.exec(message)) !== null) {
+  while ((match = fence.exec(normalized)) !== null) {
     if (match.index > lastIndex) {
       parts.push({
         type: "text",
-        content: message.slice(lastIndex, match.index),
+        content: normalized.slice(lastIndex, match.index),
       });
     }
     parts.push({
@@ -2495,8 +2924,8 @@ function renderMarkdown(message: string) {
     });
     lastIndex = fence.lastIndex;
   }
-  if (lastIndex < message.length) {
-    parts.push({ type: "text", content: message.slice(lastIndex) });
+  if (lastIndex < normalized.length) {
+    parts.push({ type: "text", content: normalized.slice(lastIndex) });
   }
 
   return parts
@@ -2565,6 +2994,7 @@ function setPanelControlsDisabledGuide(panel: HTMLElement, disabled: boolean) {
     ".btn-timer",
     ".tutor-panel-send",
     ".tutor-panel-prompt",
+    ".btn-gotToWorkspace",
   ];
   for (const selector of selectors) {
     const element = panel.querySelector<HTMLElement>(selector);
@@ -2588,6 +3018,7 @@ function setPanelControlsDisabled(panel: HTMLElement, disabled: boolean) {
     ".btn-timer",
     ".tutor-panel-send",
     ".tutor-panel-prompt",
+    ".btn-gotToWorkspace",
   ];
   for (const selector of selectors) {
     const element = panel.querySelector<HTMLElement>(selector);
@@ -2669,14 +3100,29 @@ async function appendToContentPanel(
       content_area.scrollTop = message.offsetTop;
       scheduleSessionPersist(panel);
     } else if (role === "guideAssistant") {
-      const wrapper = appendPanelMessage(panel, "", "guideAssistant");
-      if (!wrapper) return;
-
-      // the bubble is the wrapper's first child
-      const bubble = wrapper.querySelector<HTMLElement>(
-        ".tutor-panel-message--guideAssistant",
+      let wrapper = content_area.querySelector<HTMLElement>(
+        ".guide-wrapper.guide-slab",
       );
-      if (!bubble) return;
+      if (!wrapper) {
+        wrapper = document.createElement("div");
+        wrapper.className = "guide-wrapper guide-slab";
+        const list = document.createElement("ul");
+        list.className = "guide-list";
+        wrapper.appendChild(list);
+        content_area.appendChild(wrapper);
+      }
+
+      const list =
+        wrapper.querySelector<HTMLUListElement>(".guide-list") ??
+        document.createElement("ul");
+      if (!list.classList.contains("guide-list")) {
+        list.className = "guide-list";
+        wrapper.appendChild(list);
+      }
+
+      const item = document.createElement("li");
+      item.className = "guide-item";
+      list.appendChild(item);
 
       if (guideMessageCount === 0) {
         wrapper.classList.add("guide-start");
@@ -2684,10 +3130,10 @@ async function appendToContentPanel(
       guideMessageCount += 1;
       lastGuideMessageEl = wrapper;
 
-      await typeMessage(bubble, content_area, pretty, {
+      await typeMessage(item, content_area, pretty, {
         render: renderMarkdown,
       });
-      bubble.innerHTML = renderMarkdown(pretty);
+      item.innerHTML = renderMarkdown(pretty);
       content_area.scrollTop = wrapper.offsetTop;
       scheduleSessionPersist(panel);
     } else if (role === "checkAssistant") {
@@ -2749,11 +3195,12 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
     }
 
     const topics = response?.topics;
-    if (topics && typeof topics === "object") {
+    if (topics && typeof topics === "object" && currentTutorSession) {
       for (const [topic, raw] of Object.entries(
         topics as Record<string, unknown>,
       )) {
         if (!raw || typeof raw !== "object") continue;
+        const normalizedTopic = ensureTopicBucket(currentTutorSession, topic);
 
         const thoughts = (raw as { thoughts_to_remember?: unknown })
           .thoughts_to_remember;
@@ -2772,18 +3219,15 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
             : [];
 
         if (!currentTutorSession) continue;
-        currentTutorSession.topics[topic] ??= {
-          thoughts_to_remember: [],
-          pitfalls: [],
-        };
-
         if (thoughtValues.length > 0) {
-          currentTutorSession.topics[topic].thoughts_to_remember.push(
+          currentTutorSession.topics[normalizedTopic].thoughts_to_remember.push(
             ...thoughtValues,
           );
         }
         if (pitfallValues.length > 0) {
-          currentTutorSession.topics[topic].pitfalls.push(...pitfallValues);
+          currentTutorSession.topics[normalizedTopic].pitfalls.push(
+            ...pitfallValues,
+          );
         }
       }
     }

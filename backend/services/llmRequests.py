@@ -147,6 +147,7 @@ def requestingCodeCheck(
     problem_url: str | None = None,
 ):
 
+    
     system_prompt = """
     Given the following code, perform checks.
     If faulty, explain why, which line causes it, and how to fix it.
@@ -167,6 +168,7 @@ def requestingCodeCheck(
         }
 
     """
+
     user_prompt = f"""
     
     Code:
@@ -181,7 +183,8 @@ def requestingCodeCheck(
         response = client.chat.completions.create(
             model="gpt-4.1-mini-2025-04-14",
             #model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            response_format={"type": "json_object"},
         )
 
         raw = response.choices[0].message.content or ""
@@ -244,9 +247,85 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
     focusBlock = focusLine
     nudgesSoFar = rollingStateGuideMode.nudges
 #    - Place it into EXACTLY ONE relevant topic array
+    # system_prompt = """
+    # You are provided a Code block and a Focus Line
+    # Your job is to Focus on the Focus Line only, and see if it has syntax errors
+    # If there are syntax errors that affects time complexity or quality of code, provide a short correction.
+    # The correction should be short and precise.
+    # When the correction nudge is provided, make sure to fill in the respective Topic keys which seems fit.
+    # DO NOT invent new Topic keys. Just follow the Topic keys given in the Topics field given in user prompt.
+    
+    # ────────────────────────
+    # OUTPUT FORMAT (MANDATORY)
+    # ────────────────────────
+
+    # Return ONLY valid JSON.
+    # No markdown.
+    # No backticks.
+    # No extra text.
+
+    # Schema:
+    # "nudge": string,                        // "" if no nudge
+    # "topics": {                             // ONLY new items
+    #     "<topic>": {
+    #         "thoughts_to_remember": string[],
+    #         "pitfalls": string[]
+    #     }
+    # }
+
+    # If not corrections are required in the Focus Line, output empty json:
+    # {"nudge":"", "topics":{}}
+    
+    # REMEMBER: You are preparing this student to get better at solving DSA problems.
+    # """
     system_prompt = """
-    You are a tutor guide that helps an individual solve DSA problems in a meaningful, time and space efficient way.
-    You will do this by monitoring each focus line sent to you, along with a code block the focus line lies within.
+    You are provided a Code block and a Focus Line.
+
+    Your job is to analyze the Focus Line ONLY and determine whether it contains
+    ANY syntax errors or code-quality issues that warrant correction.
+
+    IMPORTANT BEHAVIOR RULE (HARD STOP):
+
+    If the Focus Line has NO syntax errors, NO code-quality issues,
+    or NOTHING NEW to correct or add,
+    you MUST return EXACTLY the following JSON and NOTHING else:
+
+    {"nudge":"", "topics":{}}
+
+    DO NOT:
+    - Explain that the line is correct
+    - State that there are no errors
+    - Praise the code
+    - Summarize or comment on correctness
+    - Add any text outside the JSON
+
+    If you output ANY text other than the JSON above in this case,
+    the response is INVALID.
+
+    ────────────────────────
+    WHEN A CORRECTION IS REQUIRED
+    ────────────────────────
+
+    If and ONLY IF the Focus Line contains an actual issue:
+
+    1) Provide a SINGLE-LINE nudge that is short, precise, and corrective.
+    - No newlines
+    - No markdown
+    - No backticks
+    - No code fences
+
+    2) For syntax errors, the nudge MUST include the fully corrected line verbatim.
+
+    3) If the issue affects time complexity or long-term code quality,
+    provide a 1-line directional nudge WITHOUT revealing the solution.
+
+    4) Populate ONLY the relevant existing Topic key(s):
+    - Add exactly ONE entry to "pitfalls" describing what the user did wrong.
+    - Add exactly ONE entry to "thoughts_to_remember" describing the correction.
+
+    DO NOT invent new Topic keys.
+    DO NOT repeat or rephrase existing items in Topics or Nudges So Far.
+    If the issue already exists, return empty JSON.
 
     ────────────────────────
     OUTPUT FORMAT (MANDATORY)
@@ -258,59 +337,18 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
     No extra text.
 
     Schema:
-    "nudge": string,                        // "" if no nudge
-    "topics": {                             // ONLY new items
+    "nudge": string,
+    "topics": {
         "<topic>": {
             "thoughts_to_remember": string[],
             "pitfalls": string[]
         }
     }
 
-    Instructions to give output:
-
-    If the individual is coding right and you do not find any errors in the focus line OR you have nothing NEW to add,
-    return exactly:
-    {"nudge":"", "topics":{}}
-
-    If you do find any errors in the focus line sent, do as following:
-
-    1) Go through the "thoughts_to_remember" and the "pitfalls" section under each of the Topic field sent by user
-    and see if the issue has already been addressed.
-    - Each pitfall has its corresponding thoughts_to_remember
-
-    IMPORTANT: Do NOT repeat or rephrase anything already present in the provided Topics JSON
-    or in the "nudges so far". If it already exists (or is essentially the same idea),
-    output nothing new for it.
-
-    2) Stick to the topics given in the input Topics JSON and DO NOT invent new topics.
-
-    3) Go through the "nudges field provided" in Topics JSON to see if the nudge you are about to provide already exists:
-        If the nudge exists, output nothing.
-        If the nudge does not exist:
-            - Provide a nudge that does not give away the solution unless it is syntax related.
-            - Help the users correcting syntax errors
-            - The nudge MUST include the fully corrected line (verbatim) in the same line.
-            Example: Focus line: "Stringbuilder st = stringbuilder();" -> nudge: "Use StringBuilder st = new StringBuilder(); because Java is case-sensitive and constructors require new."
-            - If you think the focus line can cause long term issues and is not efficient:
-                Provide a 1 liner nudge to tell the user what they can do instead without revealing the solution
-        The nudges should be 1 line, short and precise.
-        The "nudge" must be a SINGLE LINE string:
-        no newline characters, no markdown, no backticks, no code fences.
-
-    4) If you provided a nudge, there is a "pitfalls" field under each respective topic:
-    - For the topic you are providing a nudge on, first fill the pitfalls section with what the user has done, including the input.
-    - Next in the "thoughts_to_remember" section of the same topic, provide a correction for it.
-    - Both the "pitfalls" and the "thoughts_to_remember" should be a 1 liner, short and precise.
-
-
-    Use the key name exactly as shown: "topics" (do not use "topics_update").
-
-    If a topic has no NEW items, do not include that topic key at all in the output.
-
-    IMPORTANT Note: The topic field for the output should be very Topic specific - generic DSA concepts that will help solving leetcode problems
-
     REMEMBER: You are preparing this student to get better at solving DSA problems.
     """
+
+
 
     user_prompt = f"""
     Guide mode input.
@@ -336,7 +374,9 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
+                
             ],
+            response_format={"type": "json_object"},
             # temperature=0.2,
         )
         #log_token_usage("guide-mode", get_token_usage(response))
@@ -386,7 +426,12 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         time.sleep(60)
         return {"nudge": "Error calling model.", "thoughts_to_remember": [], "state_update": {}}
 
-def answerAskanything(rollingHistory: list[str], summary: str, query: str):
+def answerAskanything(
+    rollingHistory: list[str],
+    summary: str,
+    query: str,
+    language: str = "",
+):
     system_prompt = """
     You are an Assistant that helps the user with DSA problems and programming questions.
 
@@ -404,13 +449,17 @@ def answerAskanything(rollingHistory: list[str], summary: str, query: str):
 
     history_text = "\n".join(rollingHistory)
 
+    language_line = f"Preferred language: {language}\n" if language.strip() else ""
+
     user_prompt = f"""
     {"Earlier summarized context:\n" + summary if summary.strip() else ""}
 
     Recent conversation:
     {history_text}
 
-    User question:
+    I am writing code in {language_line}
+
+    question:
     {query}
     """
 

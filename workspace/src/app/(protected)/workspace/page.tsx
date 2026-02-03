@@ -1,9 +1,13 @@
 import TopicModalGrid from "@/components/TopicModalGrid";
 import { getUserSummary, getUserTopics } from "@/lib/api";
 import { getAuthSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export default async function WorkspacePage() {
   const session = await getAuthSession();
+  if (!session) {
+    redirect("/login");
+  }
   const { username, user_id } = await getUserSummary(session);
   const topics = await getUserTopics(session);
 

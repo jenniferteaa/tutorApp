@@ -51,6 +51,7 @@ class AskPayload(BaseModel):
     rollingHistory: list[str]
     summary: str
     query: str
+    language: str = ""
 
 class CodeToSummarize(BaseModel):
     sessionID: str
@@ -116,7 +117,12 @@ def llmTopicSummary(req: TopicSummaryPayload):
 def llmAsk(req: AskPayload):
     match req.action:
         case "ask-anything":
-            response = answerAskanything(req.rollingHistory, req.summary, req.query) # add rollinghistory
+            response = answerAskanything(
+                req.rollingHistory,
+                req.summary,
+                req.query,
+                req.language,
+            ) # add rollinghistory
             return {"success": True, "reply": response}
         case _:
             return {"success": False, "error": "Unknown request type"}

@@ -6,6 +6,19 @@ import LoginForm from "@/app/login/ui/LoginForm";
 
 type AuthState = { error?: string; message?: string };
 
+const passwordHintText =
+  "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
+
+function isStrongPassword(password: string) {
+  if (password.length < 8) return false;
+  if (/\s/.test(password)) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  if (!/[^A-Za-z0-9]/.test(password)) return false;
+  return true;
+}
+
 async function loginAction(
   _prevState: AuthState,
   formData: FormData,
@@ -16,8 +29,7 @@ async function loginAction(
   if (!email || !password) {
     return { error: "Invalid creds" };
   }
-  const backendBase =
-    process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+  const backendBase = process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
   const response = await fetch(`${backendBase}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -52,8 +64,10 @@ async function registerAction(
   if (!fname || !lname || !email || !password) {
     return { error: "Signup failed" };
   }
-  const backendBase =
-    process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+  if (!isStrongPassword(password)) {
+    return { error: passwordHintText };
+  }
+  const backendBase = process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
   const response = await fetch(`${backendBase}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
