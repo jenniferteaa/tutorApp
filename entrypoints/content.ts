@@ -610,15 +610,35 @@ function createFloatingWidget() {
 
 .guide-list{
   margin: 0;
-  padding-left: 18px;
+  padding-left: 0;
+  list-style: none;
 }
 
 .guide-item{
   margin: 0 0 8px 0;
+  padding-left: 18px;
+  position: relative;
+}
+
+.guide-item::before{
+  content: "–";
+  font-size: 11px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: rgba(0,0,0,0.6);
 }
 
 .guide-item:last-child{
   margin-bottom: 0;
+}
+
+.guide-wrapper.guide-slab .guide-item p{
+  margin: 0 0 8px 0;
+}
+
+.guide-wrapper.guide-slab .guide-item:last-child p:last-child{
+  margin-bottom: 10px;
 }
 
 
@@ -1704,7 +1724,9 @@ function applyStoredSessionToPanel(
     panel.style.width = `${currentTutorSession.size.width}px`;
     panel.style.height = `${currentTutorSession.size.height}px`;
   }
-  const guideSlab = panel.querySelector<HTMLElement>(".guide-wrapper.guide-slab");
+  const guideSlab = panel.querySelector<HTMLElement>(
+    ".guide-wrapper.guide-slab",
+  );
   if (guideSlab) {
     const items = guideSlab.querySelectorAll(".guide-item");
     guideMessageCount = items.length;
