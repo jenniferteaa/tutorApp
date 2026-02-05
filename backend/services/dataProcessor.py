@@ -41,7 +41,7 @@ def is_similar_topic_note(
     topics: dict[str, TopicNotes],
     note: str,
     *,
-    threshold: float = 0.85,
+    threshold: float = 0.60,
 ) -> bool:
     """
     Return True if `note` is similar to any existing note in the given topic.
@@ -63,7 +63,7 @@ def processingSimilarInputTopic(
     topicNotes: dict[str, dict[str, list[str] | str]] | dict[str, str],
     topics: dict[str, TopicNotes],
     *,
-    threshold: float = 0.85,
+    threshold: float = 0.60,
 ):
     """
     Return True if all incoming topic notes are duplicates.
@@ -124,7 +124,7 @@ def processingSimilarInputNudges(
     rolling_state: RollingStateGuideMode,
     nudges: dict[str, str] | list[str] | str,
     *,
-    threshold: float = 0.85,
+    threshold: float = 0.70,
 ) -> bool:
     """
     Return True if any incoming nudge is similar to an existing nudge

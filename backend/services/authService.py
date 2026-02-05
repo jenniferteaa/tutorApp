@@ -16,7 +16,7 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-BACKEND_TOKEN_TTL_SECONDS = int(os.getenv("BACKEND_TOKEN_TTL_SECONDS", "1800"))
+BACKEND_TOKEN_TTL_SECONDS = int(os.getenv("BACKEND_TOKEN_TTL_SECONDS", "57600"))
 REDIS_URL = os.getenv("REDIS_URL", "")
 
 _sessions: dict[str, tuple[str, float]] = {}
@@ -68,6 +68,32 @@ def _decode_jwt_sub(token: str) -> str | None:
     return sub if isinstance(sub, str) else None
 
 
+def _decode_jwt_exp(token: str) -> float | None:
+    if not token or "." not in token:
+        return None
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    padding = "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload + padding).decode("utf-8")
+        data = json.loads(decoded)
+    except Exception:
+        return None
+    exp = data.get("exp")
+    if isinstance(exp, (int, float)):
+        return float(exp)
+    return None
+
+
+def _is_jwt_expired(token: str, leeway_seconds: int = 60) -> bool:
+    exp = _decode_jwt_exp(token)
+    if exp is None:
+        return False
+    return time.time() >= (exp - leeway_seconds)
+
+
 def _rate_limit_key(prefix: str, value: str) -> str:
     return f"bridge_rl:{prefix}:{value}"
 
@@ -106,7 +132,11 @@ def check_bridge_rate_limits(ip: str | None, user_id: str | None) -> bool:
     return True
 
 
-def _issue_backend_token(user_id: str, access_token: str | None = None) -> dict | None:
+def _issue_backend_token(
+    user_id: str,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+) -> dict | None:
     if not user_id:
         return None
     token = secrets.token_urlsafe(32)
@@ -114,7 +144,53 @@ def _issue_backend_token(user_id: str, access_token: str | None = None) -> dict 
     result = {"token": token, "userId": user_id}
     if access_token:
         result["accessToken"] = access_token
+    if refresh_token:
+        result["refreshToken"] = refresh_token
     return result
+
+
+def _refresh_supabase_token(refresh_token: str) -> dict | None:
+    if not refresh_token:
+        return None
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        return None
+    response = requests.post(
+        f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
+        headers={
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+        },
+        json={"refresh_token": refresh_token},
+        timeout=10,
+    )
+    if not response.ok:
+        return None
+    data = response.json()
+    access_token = data.get("access_token")
+    refresh_token_new = data.get("refresh_token") or refresh_token
+    if not access_token:
+        return None
+    return {"access_token": access_token, "refresh_token": refresh_token_new}
+
+
+def prepare_bridge_access_token(
+    access_token: str,
+    refresh_token: str | None = None,
+) -> tuple[str | None, str | None, bool]:
+    if not access_token:
+        return None, None, False
+    if not _is_jwt_expired(access_token):
+        return access_token, refresh_token, False
+    if not refresh_token:
+        return None, None, False
+    refreshed = _refresh_supabase_token(refresh_token)
+    if not refreshed:
+        return None, None, False
+    return (
+        refreshed["access_token"],
+        refreshed.get("refresh_token") or refresh_token,
+        True,
+    )
 
 
 def login_with_supabase(email: str, password: str) -> dict | None:
@@ -136,7 +212,8 @@ def login_with_supabase(email: str, password: str) -> dict | None:
     if not user_id:
         return None
     access_token = data.get("access_token")
-    return _issue_backend_token(user_id, access_token)
+    refresh_token = data.get("refresh_token")
+    return _issue_backend_token(user_id, access_token, refresh_token)
 
 
 def signup_with_supabase(
@@ -204,7 +281,8 @@ def signup_with_supabase(
         return {"requiresVerification": True, "userId": user_id}
 
     access_token = data.get("access_token")
-    return _issue_backend_token(user_id, access_token)
+    refresh_token = data.get("refresh_token")
+    return _issue_backend_token(user_id, access_token, refresh_token)
 
 
 def verify_backend_token(token: str | None) -> str | None:
@@ -220,7 +298,7 @@ def verify_backend_token(token: str | None) -> str | None:
     return user_id
 
 
-def create_bridge_code(access_token: str, state: str) -> str | None:
+def create_bridge_code(access_token: str, state: str, refresh_token: str | None = None) -> str | None:
     if not access_token or not state:
         return None
     code = secrets.token_urlsafe(24)
@@ -232,6 +310,7 @@ def create_bridge_code(access_token: str, state: str) -> str | None:
             payload = json.dumps(
                 {
                     "access_token": access_token,
+                    "refresh_token": refresh_token,
                     "state_hash": state_hash,
                     "user_id": user_id,
                     "expires_at": time.time() + BRIDGE_CODE_TTL_SECONDS,
@@ -249,6 +328,7 @@ def create_bridge_code(access_token: str, state: str) -> str | None:
         json.dumps(
             {
                 "access_token": access_token,
+                "refresh_token": refresh_token,
                 "state_hash": state_hash,
                 "user_id": user_id,
                 "expires_at": time.time() + BRIDGE_CODE_TTL_SECONDS,
@@ -259,9 +339,9 @@ def create_bridge_code(access_token: str, state: str) -> str | None:
     return code
 
 
-def consume_bridge_code(code: str, state: str) -> tuple[str | None, str | None]:
+def consume_bridge_code(code: str, state: str) -> tuple[str | None, str | None, str | None]:
     if not code or not state:
-        return None, None
+        return None, None, None
     code_hash = _hash_value(code)
     state_hash = _hash_value(state)
     client = _get_redis_client()
@@ -273,23 +353,31 @@ def consume_bridge_code(code: str, state: str) -> tuple[str | None, str | None]:
             pipe.delete(key)
             value, _ = pipe.execute()
             if not value:
-                return None, None
+                return None, None, None
             payload = json.loads(value)
             if payload.get("state_hash") != state_hash:
-                return None, None
-            return payload.get("access_token"), payload.get("user_id")
+                return None, None, None
+            return (
+                payload.get("access_token"),
+                payload.get("refresh_token"),
+                payload.get("user_id"),
+            )
         except Exception:
             pass
     entry = _bridge_codes.pop(code_hash, None)
     if not entry:
-        return None, None
+        return None, None, None
     payload_str, expires_at = entry
     if time.time() > expires_at:
-        return None, None
+        return None, None, None
     try:
         payload = json.loads(payload_str)
     except Exception:
-        return None, None
+        return None, None, None
     if payload.get("state_hash") != state_hash:
-        return None, None
-    return payload.get("access_token"), payload.get("user_id")
+        return None, None, None
+    return (
+        payload.get("access_token"),
+        payload.get("refresh_token"),
+        payload.get("user_id"),
+    )

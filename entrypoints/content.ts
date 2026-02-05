@@ -80,28 +80,28 @@ function createFloatingWidget() {
   pointer-events: auto;
   }
   
-  .widget-main-button {
+.widget-main-button {
       width: 50px;
       height: 50px;
-      background: linear-gradient(135deg, #9CA3AF 0%, #4B5563 100%);
+      background: linear-gradient(135deg, #C8D0CC 0%, #A7B2AD 100%);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 20px;
       cursor: pointer;
-      box-shadow: 0 4px 16px rgb(200, 208, 204);
+      box-shadow: 0 4px 16px rgba(47,59,56,0.18);
       transition: all 0.3s ease;
       /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
       color: #ffffff;
     }
-      .widget-main-button.dragging {
+.widget-main-button.dragging {
       cursor: grabbing !important;
       transform: scale(0.95);
       box-shadow: 
-        0 8px 30px rgb(120, 126, 123),
+        0 8px 30px rgba(47,59,56,0.35),
     /*     0 0 25px rgb(120, 126, 123), */
     /*    0 0 50px rgba(204, 102, 218, 0.7), */
     /*    0 0 80px rgba(204, 102, 218, 0.5); */
@@ -117,16 +117,17 @@ function createFloatingWidget() {
   width: 430px;
   height: 280px;
 
-  background: #F9FAFB;
+  background: #EEF1F0;
   border-radius: 7px;
   border: none;
   box-shadow:
-    0 14px 30px rgba(0,0,0,0.18),
-    0 2px 6px rgba(0,0,0,0.10);
+    0 14px 30px rgba(47,59,56,0.18),
+    0 2px 6px rgba(47,59,56,0.10);
 
   z-index: 999997;
   font-family: Calibri, sans-serif;
   font-size: 13px;
+  color: #2F3B38;
 
   transform: none;
   opacity: 0;
@@ -156,18 +157,18 @@ function createFloatingWidget() {
   gap: 8px;
   min-height: 44px;
   padding: 8px 12px;
-  background: rgba(0,0,0,0.1);
-  border-bottom: 1px solid rgba(0,0,0,0.1);
+  background: #D6DDD9;
+  border-bottom: 1px solid #C1C9C5;
   transition: background-color 160ms ease, box-shadow 160ms ease;
   cursor: grab;
   justify-content: flex-end;
 }
 .tutor-panel-shellbar:hover{
-  background: rgba(0, 0, 0, 0.15);
+  background: #C8D0CC;
 }
 
 .tutor-panel-shellbar:active{
-  background: rgba(0, 0, 0, 0.15);
+  background: #C8D0CC;
   cursor: grabbing;
 }
 
@@ -203,21 +204,21 @@ function createFloatingWidget() {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(0,0,0,0.15);
+  background: #F7F9F8;
+  border: 1px solid #C1C9C5;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: rgba(0,0,0,0.75);
-  box-shadow: 0 6px 14px rgba(0,0,0,0.12);
+  color: #2F3B38;
+  box-shadow: 0 6px 14px rgba(47,59,56,0.12);
 }
 
 .tutor-panel-loading-spinner{
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(0,0,0,0.2);
-  border-top-color: rgba(0,0,0,0.6);
+  border: 2px solid rgba(93,106,102,0.35);
+  border-top-color: rgba(93,106,102,0.9);
   animation: tutorPanelSpin 0.8s linear infinite;
 }
 
@@ -236,7 +237,7 @@ function createFloatingWidget() {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: rgba(0,0,0,0.45);
+  background: rgba(93,106,102,0.6);
   animation: tutorPanelBlink 0.9s ease-in-out infinite;
 }
 
@@ -249,8 +250,8 @@ function createFloatingWidget() {
   cursor: grabbing !important;
   transform: scale(0.98) rotate(-0.4deg);
   box-shadow:
-    0 18px 50px rgba(0,0,0,0.25),
-    0 2px 10px rgba(0,0,0,0.12);
+    0 18px 50px rgba(47,59,56,0.25),
+    0 2px 10px rgba(47,59,56,0.12);
 }
 
 /* Top bar */
@@ -272,7 +273,7 @@ function createFloatingWidget() {
   border-radius: 4px;
 
   /* background: rgba(231, 218, 225, 0.45); */
-  color: rgba(0,0,0,0.65);
+  color: #5D6A66;
   font-size: 13px;
   line-height: 1;
 
@@ -283,7 +284,7 @@ function createFloatingWidget() {
 }
 .tutor-panel-close:hover{
   transform: scale(1.06);
-  background: rgba(205, 201, 203, 0.3);
+  background: rgba(200,208,204,0.6);
 }
 
 /* Actions row */
@@ -301,11 +302,10 @@ function createFloatingWidget() {
 /* Buttons */
 .btn-guide-mode,
 .btn-help-mode,
-.btn-timer,
 .btn-gotToWorkspace{
   border: none;
-  background: rgba(0,0,0,0.1);
-  color: rgba(0,0,0,0.9);
+  background: #D6DDD9;
+  color: #2F3B38;
 
   padding: 6px 10px;
   border-radius: 8px;
@@ -319,15 +319,13 @@ function createFloatingWidget() {
 }
 .btn-guide-mode:not(:disabled):hover,
 .btn-help-mode:not(:disabled):hover,
-.btn-timer:not(:disabled):hover,
 .btn-gotToWorkspace:not(:disabled):hover{
-  background: rgba(0, 0, 0, 0.15);
+  background: #C8D0CC;
 }
 .btn-guide-mode:active,
 .btn-help-mode:active,
-.btn-timer:active,
 .btn-gotToWorkspace:active{
-  background: rgba(0,0,0,0.15);
+  background: #C8D0CC;
 }
 
 
@@ -338,18 +336,17 @@ function createFloatingWidget() {
 }
 
 .btn-guide-mode.is-loading{
-  background: rgba(0,0,0,0.15);
+  background: #A7B2AD;
   animation: hoverPulse 1.2s ease-in-out infinite;
 }
 
 
 .btn-help-mode.is-loading{
-  background: rgba(0,0,0,0.15);
+  background: #A7B2AD;
   animation: hoverPulse 1.2s ease-in-out infinite;
   }
 
 .tutor-panel.checkmode-active .btn-guide-mode,
-.tutor-panel.checkmode-active .btn-timer,
 .tutor-panel.checkmode-active .tutor-panel-send,
 .tutor-panel.checkmode-active .btn-gotToWorkspace{
   position: relative;
@@ -358,7 +355,6 @@ function createFloatingWidget() {
   cursor: not-allowed;
 }
 .tutor-panel.checkmode-active .btn-guide-mode::after,
-.tutor-panel.checkmode-active .btn-timer::after,
 .tutor-panel.checkmode-active .tutor-panel-send::after{
   position: absolute;
   inset: 0;
@@ -366,11 +362,10 @@ function createFloatingWidget() {
   place-items: center;
   font-size: 13px;
   font-weight: 700;
-  color: rgba(0,0,0,0.7);
+  color: #5D6A66;
 }
 
 .tutor-panel.guidemode-active .btn-help-mode,
-.tutor-panel.guidemode-active .btn-timer,
 .tutor-panel.guidemode-active .tutor-panel-send,
 .tutor-panel.guidemode-active .btn-gotToWorkspace{
   position: relative;
@@ -379,7 +374,6 @@ function createFloatingWidget() {
   cursor: not-allowed;
 }
 .tutor-panel.guidemode-active .btn-help-mode::after,
-.tutor-panel.guidemode-active .btn-timer::after,
 .tutor-panel.guidemode-active .tutor-panel-send::after{
   position: absolute;
   inset: 0;
@@ -387,7 +381,7 @@ function createFloatingWidget() {
   place-items: center;
   font-size: 13px;
   font-weight: 700;
-  color: rgba(0,0,0,0.7);
+  color: #5D6A66;
 }
 
 
@@ -412,7 +406,7 @@ function createFloatingWidget() {
   padding: 60px 16px 16px;
   z-index: 2;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(238, 241, 240, 0.85);
   backdrop-filter: blur(50px);
   display: flex;
   flex-direction: column;
@@ -483,11 +477,11 @@ function createFloatingWidget() {
   background: transparent;
   padding: 0;
   margin: 0;
-  color: rgba(0,0,0,0.55);
+  color: #5D6A66;
   cursor: pointer;
 }
 .tutor-panel-auth .auth-password-toggle:hover{
-  color: rgba(0,0,0,0.85);
+  color: #2F3B38;
 }
 .tutor-panel-auth .auth-password-toggle svg{
   width: 18px;
@@ -496,7 +490,7 @@ function createFloatingWidget() {
 }
 .tutor-panel-auth .auth-sep{
   font-weight: 700;
-  color: rgba(0,0,0,0.45);
+  color: #7C8A85;
   user-select: none;
 }
 .tutor-panel-auth h4{
@@ -513,10 +507,10 @@ function createFloatingWidget() {
   width: 100%;
   max-width: 320px;
   padding: 6px 8px;
-  border: 1px solid rgba(0,0,0,0.2);
+  border: 1px solid #A7B2AD;
   border-radius: 6px;
   margin-top: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  background: #F7F9F8;
 }
 .tutor-panel-auth button{
   margin-top: 8px;
@@ -532,7 +526,7 @@ function createFloatingWidget() {
 .tutor-panel-auth input:focus{
   outline: none;
   box-shadow: none;
-  border-color: rgba(0,0,0,0.5); /* keep same border */
+  border-color: #7C8A85; /* keep same border */
 }
 
 
@@ -541,17 +535,17 @@ function createFloatingWidget() {
 }
 
 .tutor-panel-auth button{
-  color: rgba(0,0,0,0.5)
+  color: #5D6A66;
 }
 
 .tutor-panel-auth button:hover {
-  color: #000000; /* pick the text color you want on hover */
+  color: #2F3B38; /* pick the text color you want on hover */
 }
 
 .tutor-panel-auth .auth-supabase{
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(0,0,0,0.1);
+  border-top: 1px solid #C1C9C5;
 }
 
 .tutor-panel-message{
@@ -560,7 +554,7 @@ function createFloatingWidget() {
   /* background: rgba(255, 255, 255, 0.75); */
  /* border: 1px solid rgba(0,0,0,0.08); */
   border-radius: 4px;
-  color: rgba(0,0,0,0.86);
+  color: #2F3B38;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -575,7 +569,7 @@ function createFloatingWidget() {
 
 .tutor-panel-message--guideAssistant{
   border: none;
-  background: rgba(0,0,0,0.03); /* or transparent if you want none */
+  background: rgba(200,208,204,0.35); /* or transparent if you want none */
   border-radius: 3px;
   align-self: stretch;
   width: 100%;
@@ -602,7 +596,7 @@ function createFloatingWidget() {
 }
 
 .guide-wrapper.guide-slab{
-  background: rgba(15, 23, 42, 0.06);
+  background: #E3E9E6;
   border-radius: 7px;
   padding: 10px 12px;
   box-sizing: border-box;
@@ -620,13 +614,13 @@ function createFloatingWidget() {
   position: relative;
 }
 
-.guide-item::before{
+.guide-wrapper.guide-slab .guide-item::before{
   content: "–";
   font-size: 11px;
   position: absolute;
   left: 0;
   top: 0;
-  color: rgba(0,0,0,0.6);
+  color: #5D6A66;
 }
 
 .guide-item:last-child{
@@ -651,7 +645,7 @@ function createFloatingWidget() {
 
 /* Border + GAP live here */
 .guide-wrapper.guide-start{
-  border-top: 1px solid rgba(0,0,0,0.08);
+  border-top: 1px solid #C1C9C5;
   margin-top: 14px;
   padding-top: 14px;
 }
@@ -679,7 +673,7 @@ function createFloatingWidget() {
 }
 
 .check-wrapper.check-start{
-  border-top: 1px solid rgba(0,0,0,0.08);
+  border-top: 1px solid #C1C9C5;
   margin-top: 14px;
   padding-top: 14px;
 }
@@ -714,7 +708,7 @@ function createFloatingWidget() {
 
 .tutor-panel-loading{
   font-size: 13px;
-  color: rgba(0,0,0,0.6);
+  color: #5D6A66;
   padding: 6px 12px;
   align-self: flex-start;
 }
@@ -725,7 +719,7 @@ function createFloatingWidget() {
   padding: 10px 10px;
   max-width: 75%;
   border-radius: 9px;
-  background: rgba(0,0,0,0.1);
+  background: #D6DDD9;
 }
 
 .tutor-panel-message p{
@@ -750,7 +744,7 @@ function createFloatingWidget() {
 }
 .tutor-panel-message code{
   font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", "Menlo", monospace;
-  background: rgba(0,0,0,0.06);
+  background: rgba(200,208,204,0.5);
   padding: 1px 4px;
   font-size: 12px;
   border-radius: 4px;
@@ -759,7 +753,7 @@ function createFloatingWidget() {
   font-weight: 800;
 }
 .tutor-panel-message pre{
-  background: rgba(15, 23, 42, 0.06);
+  background: rgba(200,208,204,0.5);
   padding: 10px 12px;
   border-radius: 8px;
   overflow: auto;
@@ -802,7 +796,7 @@ function createFloatingWidget() {
   border-radius: 4px;
   outline: none;
 
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(200,208,204,0.35);
   font-size: 13px;
   line-height: 1.2;
 }
@@ -1152,17 +1146,24 @@ const CANONICAL_TOPICS = [
   "Quickselect",
   "Suffix Array",
   "Sweep Line",
-  "Probability and Statistics",
   "Minimum Spanning Tree",
   "Bucket Sort",
   "Shell",
   "Reservoir Sampling",
-  "Strongly Connected Component",
-  "Eulerian Circuit",
   "Radix Sort",
   "Rejection Sampling",
-  "Biconnected Component",
 ];
+
+const TOPIC_REPLACEMENTS: Record<string, string> = {
+  "Dynamic Programming": "DP",
+  "Depth-First Search": "DFS",
+  "Breadth-First Search": "BFS",
+  "Heap (Priority Queue)": "Heaps (PQ)",
+  "Binary Indexed Tree": "Binary Trees",
+  "Binary Search Tree": "BST",
+  "Doubly-Linked List": "DLL",
+  "Minimum Spanning Tree": "MST",
+};
 
 function normalizeTopicKey(value: string): string {
   return value
@@ -1175,8 +1176,14 @@ function normalizeTopicKey(value: string): string {
 }
 
 const CANONICAL_TOPIC_MAP = new Map(
-  CANONICAL_TOPICS.map((topic) => [normalizeTopicKey(topic), topic]),
+  CANONICAL_TOPICS.map((topic) => [
+    normalizeTopicKey(topic),
+    TOPIC_REPLACEMENTS[topic] ?? topic,
+  ]),
 );
+Object.values(TOPIC_REPLACEMENTS).forEach((replacement) => {
+  CANONICAL_TOPIC_MAP.set(normalizeTopicKey(replacement), replacement);
+});
 
 function titleCaseTopic(value: string): string {
   return value
@@ -1327,13 +1334,13 @@ function buildFreshSession(
     problemUrl: getCanonicalProblemUrl(window.location.href),
     language: getEditorLanguageFromPage(),
     topics: getRollingTopicsFromPage(),
+    sessionTopicsInitialized: false,
     content: [],
     prompt: "",
     position: null,
     size: null,
     guideModeEnabled: false,
     checkModeEnabled: false,
-    timerEnabled: false,
     rollingStateGuideMode: {
       problem: title,
       nudges: [],
@@ -1372,6 +1379,8 @@ async function openTutorPanel() {
         currentTutorSession.element,
         authExpired ? "session expired, please log back in" : undefined,
       );
+    } else {
+      void initSessionTopicsIfNeeded(currentTutorSession);
     }
     markUserActivity();
     scheduleSessionPersist(currentTutorSession.element);
@@ -1417,6 +1426,8 @@ async function openTutorPanel() {
         tutorPanel,
         authExpired ? "session expired, please log back in" : undefined,
       );
+    } else if (currentTutorSession) {
+      void initSessionTopicsIfNeeded(currentTutorSession);
     }
     scheduleSessionPersist(tutorPanel);
     return;
@@ -1443,6 +1454,7 @@ async function openTutorPanel() {
     );
   } else {
     currentTutorSession.userId = authUserId;
+    void initSessionTopicsIfNeeded(currentTutorSession);
   }
   // lockPanel
   // Auto-focus the textarea when created via shortcut
@@ -1521,17 +1533,33 @@ type TutorSession = {
     string,
     { thoughts_to_remember: string[]; pitfalls: string[] }
   >;
+  sessionTopicsInitialized: boolean;
   prompt: string;
   position: PanelPosition | null;
   size: PanelSize | null;
   guideModeEnabled: boolean;
   checkModeEnabled: boolean;
-  timerEnabled: boolean;
   rollingStateGuideMode: RollingStateGuideMode;
   sessionRollingHistory: SessionRollingHistoryLLM;
 };
 
 let currentTutorSession: TutorSession | null = null;
+
+async function initSessionTopicsIfNeeded(session: TutorSession) {
+  if (session.sessionTopicsInitialized) return;
+  if (!session.userId) return;
+  const resp = await browser.runtime.sendMessage({
+    action: "init-session-topics",
+    payload: {
+      sessionId: session.sessionId,
+      topics: session.topics,
+    },
+  });
+  if (resp?.success) {
+    session.sessionTopicsInitialized = true;
+    scheduleSessionPersist(session.element ?? null);
+  }
+}
 
 type StoredAuth = {
   userId: string;
@@ -1605,6 +1633,7 @@ async function saveSessionState(
       sessionId: currentTutorSession.sessionId,
       userId: currentTutorSession.userId,
       content: currentTutorSession.content,
+      sessionTopicsInitialized: currentTutorSession.sessionTopicsInitialized,
       language: currentTutorSession.language,
       problem: currentTutorSession.problem,
       problemUrl: currentTutorSession.problemUrl,
@@ -1614,7 +1643,6 @@ async function saveSessionState(
       size: currentTutorSession.size,
       guideModeEnabled: currentTutorSession.guideModeEnabled,
       checkModeEnabled: currentTutorSession.checkModeEnabled,
-      timerEnabled: currentTutorSession.timerEnabled,
       rollingStateGuideMode: currentTutorSession.rollingStateGuideMode,
       sessionRollingHistory: currentTutorSession.sessionRollingHistory,
     },
@@ -1706,6 +1734,12 @@ function applyStoredSessionToPanel(
   if (currentTutorSession && !currentTutorSession.language) {
     currentTutorSession.language = getEditorLanguageFromPage();
   }
+  if (
+    currentTutorSession &&
+    currentTutorSession.sessionTopicsInitialized == null
+  ) {
+    currentTutorSession.sessionTopicsInitialized = false;
+  }
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (contentArea) {
     contentArea.innerHTML = stored.contentHtml || "";
@@ -1724,13 +1758,15 @@ function applyStoredSessionToPanel(
     panel.style.width = `${currentTutorSession.size.width}px`;
     panel.style.height = `${currentTutorSession.size.height}px`;
   }
-  const guideSlab = panel.querySelector<HTMLElement>(
+  const guideSlabs = panel.querySelectorAll<HTMLElement>(
     ".guide-wrapper.guide-slab",
   );
-  if (guideSlab) {
+  if (guideSlabs.length > 0) {
+    const guideSlab = guideSlabs[guideSlabs.length - 1];
     const items = guideSlab.querySelectorAll(".guide-item");
     guideMessageCount = items.length;
     lastGuideMessageEl = guideSlab;
+    guideActiveSlab = currentTutorSession?.guideModeEnabled ? guideSlab : null;
   } else {
     const guideWrappers = panel.querySelectorAll(".guide-wrapper");
     guideMessageCount = guideWrappers.length;
@@ -1738,6 +1774,7 @@ function applyStoredSessionToPanel(
       guideWrappers.length > 0
         ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
         : null;
+    guideActiveSlab = null;
   }
 }
 
@@ -1758,6 +1795,9 @@ function resetPanelForUser(
     prompt.value = "";
   }
   currentTutorSession = buildFreshSession(panel, userId, problemName);
+  if (currentTutorSession) {
+    void initSessionTopicsIfNeeded(currentTutorSession);
+  }
 }
 
 async function hydrateStoredSessionCache() {
@@ -1839,6 +1879,7 @@ function resetGuideState() {
   lastGuideFlushAt = 0;
   guideMessageCount = 0;
   lastGuideMessageEl = null;
+  guideActiveSlab = null;
 }
 
 function stopPanelOperations(panel: HTMLElement) {
@@ -1852,7 +1893,6 @@ function stopPanelOperations(panel: HTMLElement) {
   if (currentTutorSession) {
     currentTutorSession.guideModeEnabled = false;
     currentTutorSession.checkModeEnabled = false;
-    currentTutorSession.timerEnabled = false;
   }
   panel.classList.remove("guidemode-active", "checkmode-active");
   panel.querySelector(".btn-guide-mode")?.classList.remove("is-loading");
@@ -2077,6 +2117,7 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
 
     if (currentTutorSession) {
       currentTutorSession.userId = userId;
+      void initSessionTopicsIfNeeded(currentTutorSession);
     }
     sessionRestorePending = false;
     unlockPanel(panel);
@@ -2289,7 +2330,6 @@ function createTutorPanel() {
         <div class="tutor-panel-actions">
           <button class="btn-guide-mode">Guide me</button>
           <button class="btn-help-mode">Check mode</button>
-          <button class="btn-timer">Timer</button>
           <button class="btn-gotToWorkspace">Notes made</button>
         </div>
       </div>
@@ -2369,6 +2409,7 @@ let lastGuideFlushLine: number | null = null;
 let lastGuideFlushAt = 0;
 let guideMessageCount = 0;
 let lastGuideMessageEl: HTMLElement | null = null;
+let guideActiveSlab: HTMLElement | null = null;
 
 function guideMode() {}
 
@@ -2529,6 +2570,8 @@ async function drainGuideQueue() {
           topics: currentTutorSession?.topics,
           code,
           focusLine,
+          language:
+            currentTutorSession?.language ?? getEditorLanguageFromPage(),
           rollingStateGuideMode: currentTutorSession?.rollingStateGuideMode,
         },
       });
@@ -2553,6 +2596,10 @@ async function drainGuideQueue() {
         const nudge = reply?.nudge;
 
         if (currentTutorSession && typeof nudge === "string") {
+          const trimmedNudge = nudge.trim();
+          if (trimmedNudge) {
+            currentTutorSession.rollingStateGuideMode.nudges.push(trimmedNudge);
+          }
           currentTutorSession.content.push(`${nudge}\n`);
           if (currentTutorSession.element != null) {
             //const pretty = prettifyLlMResponse(nudge);
@@ -2751,7 +2798,6 @@ async function askAnything(panel: HTMLElement, query: string) {
   return reply;
 }
 
-function createTimer() {}
 function sendChat() {}
 function minimizeWindow() {}
 
@@ -3013,7 +3059,6 @@ function appendPanelMessage(
 function setPanelControlsDisabledGuide(panel: HTMLElement, disabled: boolean) {
   const selectors = [
     ".btn-help-mode",
-    ".btn-timer",
     ".tutor-panel-send",
     ".tutor-panel-prompt",
     ".btn-gotToWorkspace",
@@ -3037,7 +3082,6 @@ function setPanelControlsDisabled(panel: HTMLElement, disabled: boolean) {
   const selectors = [
     ".btn-guide-mode",
     ".btn-help-mode",
-    ".btn-timer",
     ".tutor-panel-send",
     ".tutor-panel-prompt",
     ".btn-gotToWorkspace",
@@ -3122,9 +3166,10 @@ async function appendToContentPanel(
       content_area.scrollTop = message.offsetTop;
       scheduleSessionPersist(panel);
     } else if (role === "guideAssistant") {
-      let wrapper = content_area.querySelector<HTMLElement>(
-        ".guide-wrapper.guide-slab",
-      );
+      let wrapper =
+        guideActiveSlab && content_area.contains(guideActiveSlab)
+          ? guideActiveSlab
+          : null;
       if (!wrapper) {
         wrapper = document.createElement("div");
         wrapper.className = "guide-wrapper guide-slab";
@@ -3132,6 +3177,7 @@ async function appendToContentPanel(
         list.className = "guide-list";
         wrapper.appendChild(list);
         content_area.appendChild(wrapper);
+        guideActiveSlab = wrapper;
       }
 
       const list =
@@ -3157,6 +3203,12 @@ async function appendToContentPanel(
       });
       item.innerHTML = renderMarkdown(pretty);
       content_area.scrollTop = wrapper.offsetTop;
+      // currentTutorSession?.sessionRollingHistory.qaHistory.push(
+      //   `Guide: ${llm_response}`,
+      // );
+      // if (currentTutorSession) {
+      //   maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      // }
       scheduleSessionPersist(panel);
     } else if (role === "checkAssistant") {
       const wrapper = appendPanelMessage(panel, "", "checkAssistant");
@@ -3177,6 +3229,12 @@ async function appendToContentPanel(
 
       wrapper.classList.add("check-end");
       content_area.scrollTop = wrapper.offsetTop;
+      currentTutorSession?.sessionRollingHistory.qaHistory.push(
+        `Check: ${llm_response}`,
+      );
+      if (currentTutorSession) {
+        maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      }
       scheduleSessionPersist(panel);
     }
   }
@@ -3192,6 +3250,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
         topics: currentTutorSession?.topics,
         code: writtenCode, // <-- raw string
         action: "check-code",
+        language: currentTutorSession?.language ?? getEditorLanguageFromPage(),
         problem_no: getProblemNumberFromTitle(
           currentTutorSession?.problem ?? "",
         ),
@@ -3302,6 +3361,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       guideModeButton?.classList.add("is-loading"); // #change this to is-active
       guideMessageCount = 0;
       lastGuideMessageEl = null;
+      guideActiveSlab = null;
       attachGuideListeners();
     } else {
       detachGuideListeners();

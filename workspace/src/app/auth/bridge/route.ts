@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { setAuthToken } from "@/lib/auth";
+import { setAuthToken, setRefreshToken } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -22,11 +22,17 @@ export async function GET(request: NextRequest) {
   if (!response.ok) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  const data = (await response.json()) as { access_token?: string };
+  const data = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+  };
   if (!data.access_token) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   await setAuthToken(data.access_token);
+  if (data.refresh_token) {
+    await setRefreshToken(data.refresh_token);
+  }
   const redirectTo =
     request.nextUrl.searchParams.get("redirect") || "/workspace";
   return NextResponse.redirect(new URL(redirectTo, request.url));

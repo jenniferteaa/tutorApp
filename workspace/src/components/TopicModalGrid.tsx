@@ -68,7 +68,6 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
       return;
     }
     if (summarizing) return;
-    setShowSummary(true);
     setSummarizing(true);
     setError(null);
     try {
@@ -92,6 +91,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
             : prev,
         );
       }
+      setShowSummary(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to summarize";
@@ -161,10 +161,10 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
         ))}
       </div>
 
-      {loading ? (
+      {loading || summarizing ? (
         <div className="fixed inset-0 z-40 grid place-items-center bg-black/30">
           <div className="rounded-2xl bg-white px-6 py-4 text-sm font-semibold">
-            Loading topic…
+            {loading ? "Loading topic…" : "Summarizing…"}
           </div>
         </div>
       ) : null}
@@ -177,12 +177,14 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
               <div className="flex items-center gap-3">
                 <button
                   className={`rounded-full border border-black/30 px-3 py-1 text-sm ${
-                    showSummary ? "bg-black text-white" : "hover:bg-black/5"
+                    showSummary || summarizing
+                      ? "bg-black text-white"
+                      : "hover:bg-black/5"
                   }`}
                   onClick={handleToggleSummary}
                   disabled={summarizing}
                 >
-                  Summarize
+                  {summarizing ? "Summarizing…" : "Summarize"}
                 </button>
                 <input
                   className="w-44 rounded-full border border-black/20 px-3 py-1 text-sm outline-none focus:border-black/40"
@@ -407,7 +409,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                                       className="group rounded-xl px-3 py-2"
                                     >
                                       <summary className="flex flex-wrap items-center gap-2 cursor-pointer text-lg font-bold text-black/50 group-open:text-black group-hover:text-black">
-                                        <span className="text-black/40 group-hover:text-black">
+                                        <span className="inline-block text-black/40 transition-transform group-open:rotate-90 group-hover:text-black">
                                           ›
                                         </span>
                                         <span>Attempt</span>{" "}

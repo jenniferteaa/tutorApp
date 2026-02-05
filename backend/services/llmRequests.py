@@ -13,8 +13,6 @@ from services.redisClient import r, rkey, set_json, get_json
 load_dotenv()
 
 client = OpenAI()
-# implement the code here to validate the session Id
-
 GUIDE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
 
 _LUA_MERGE_TOPICS = """
@@ -70,6 +68,27 @@ def _format_guide_summary(acc: dict[str, dict[str, list[str]]]) -> str:
         lines.append(f"- {topic_name}: {total} notes")
     return "\n".join(lines)
 
+def _topic_counts(topics: dict) -> tuple[int, int, int]:
+    total_topics = len(topics) if isinstance(topics, dict) else 0
+    total_thoughts = 0
+    total_pitfalls = 0
+    if not isinstance(topics, dict):
+        return total_topics, total_thoughts, total_pitfalls
+    for payload in topics.values():
+        if not isinstance(payload, dict):
+            continue
+        thoughts = payload.get("thoughts_to_remember") if isinstance(payload, dict) else None
+        pitfalls = payload.get("pitfalls") if isinstance(payload, dict) else None
+        if isinstance(thoughts, list):
+            total_thoughts += len([t for t in thoughts if isinstance(t, str) and t.strip()])
+        elif isinstance(thoughts, str) and thoughts.strip():
+            total_thoughts += 1
+        if isinstance(pitfalls, list):
+            total_pitfalls += len([p for p in pitfalls if isinstance(p, str) and p.strip()])
+        elif isinstance(pitfalls, str) and pitfalls.strip():
+            total_pitfalls += 1
+    return total_topics, total_thoughts, total_pitfalls
+
 def guide_mode_enable(
     session_id: str,
     user_id: str,
@@ -105,6 +124,11 @@ def guide_mode_disable(
     topics_key = rkey("guide:topics", user_id, session_id)
 
     acc = get_json(topics_key) or {}
+    topics_count, thoughts_count, pitfalls_count = _topic_counts(acc)
+    # print(
+    #     "guide_mode_disable redis topics="
+    #     f"{topics_count} thoughts={thoughts_count} pitfalls={pitfalls_count}"
+    # )
     if not acc:
         r.delete(enabled_key, meta_key, topics_key)
         return
@@ -117,6 +141,7 @@ def guide_mode_disable(
             "problem_url": problem_url,
             "topics": acc,
             "response_text": _format_guide_summary(acc),
+            "origin": "guidemode",
         }
     )
     flush_guide_buffer()
@@ -140,6 +165,7 @@ def log_token_usage(label: str, usage: dict) -> None:
 def requestingCodeCheck(
     topics: dict[str, TopicNotes],
     code: str,
+    language: str,
     session_id: str | None = None,
     user_id: str | None = None,
     problem_no: int | None = None,
@@ -149,30 +175,78 @@ def requestingCodeCheck(
 
     
     system_prompt = """
-    Given the following code, perform checks.
-    If faulty, explain why, which line causes it, and how to fix it.
-    You can provide the correct code.
+    You are given:
+    - Code
+    - Programming language the user is using
+    - A fixed Topics JSON (its keys are the ONLY allowed topics)
+    Your job:
+    1) Produce "resp" with any helpful explanation/corrections.
+    2) Produce "topics" with ONLY NEW items, and ONLY if they belong to the correct topic.
 
-    Go through the Topics JSON part, and for the faulty lines or logic, add the faulty line under pitfalls of the respective topic you seem fit, and add the correction under thoughts_to_remember
-    Provide an output with formatted content.
+    ABSOLUTE RULES FOR "topics" (MANDATORY):
+    A) "topics" is for TOPIC-SPECIFIC learnings only.
+    - Every item you add must be clearly and directly about that topic’s concept.
+    - You can add corrections to be made under "thoughts_to_remember" section of the respective topic
 
-    Return the response in the following format:
+    B) STRICT TOPIC ASSIGNMENT:
+    - Add an item to a topic ONLY if the mistake/learning is fundamentally about that topic.
+    - If not, You can add suggestions on how this Topic can be used to solve this problem.
 
-        Schema:
-        "resp": string,
-        "topics": {                             // ONLY new items
-            "<topic>": {
-                "thoughts_to_remember": string[],
-                "pitfalls": string[]
-            }
+    C) DEDUPE:
+    - Do not repeat or rephrase anything already present in the provided Topics JSON.
+
+    OUTPUT FORMAT (MANDATORY):
+    Return ONLY valid JSON (no markdown, no backticks outside strings).
+    Schema:
+    {
+    "resp": string,
+    "topics": {
+        "<topic>": {
+        "thoughts_to_remember": string[],
+        "pitfalls": string[]
         }
+    }
+    }
+    CORRECTED CODE RULE (MANDATORY):
+
+    If the code is faulty and a fix is clear,
+    you MAY include the fully corrected code.
+
+    Rules for corrected code:
+    - Corrected code MUST appear ONLY inside the "resp" string.
+    - Corrected code MUST be clearly labeled as "Corrected code:".
+    - Do NOT add corrected code to "topics".
+    - Do NOT extract learnings from the corrected code unless they are
+    strictly topic-specific and pass all topic rules.
+    - If multiple fixes are possible, provide ONE reasonable corrected version.
+
+    
+    CODE FORMATTING RULE (MANDATORY):
+
+    When including code inside the "resp" string:
+
+    - Wrap the ENTIRE corrected code block in triple backticks (```).
+    - Specify the language immediately after the opening backticks (e.g., ```java).
+    - Do NOT use backticks anywhere else for code blocks.
+    - Inline code identifiers (class names, variables, methods) MUST be wrapped in single backticks (`).
+    - Do NOT mix markdown styles.
+    - Do NOT place code outside the "resp" string.
+
+
+    If there are no NEW topic-specific items to add, return:
+    {"resp":"<your resp text>", "topics":{}}
 
     """
+
+    language_line = f"Preferred language: {language}\n" if language.strip() else ""
 
     user_prompt = f"""
     
     Code:
     {code}
+
+    programming language: 
+    {language_line}
 
     Topics (JSON — keys are fixed, values contain existing notes):
     {json.dumps(_serialize_topics(topics), indent=2)}
@@ -189,9 +263,14 @@ def requestingCodeCheck(
 
         raw = response.choices[0].message.content or ""
         data = parse_json_response(raw)
-
+        print()
+        print("This is the checkmode's raw response: ")
+        print()
+        print(data)
+        print()
 
         topicNotes = data.get("topics") or {}
+        #print("this is topics field: ", topicNotes)
         isSimilar = False
         if topicNotes:
             deduped = processingSimilarInputTopic(
@@ -214,10 +293,13 @@ def requestingCodeCheck(
                 "problem_url": problem_url,
                 "topics": data.get("topics") or {},
                 "response_text": data.get("resp") or "",
+                "origin": "checkmode",
             }
             if is_db_write_in_flight():
+                #print("checkmode: db write in flight, buffering payload")
                 buffer_guide_write(payload)
             else:
+                #print("checkmode: writing payload now")
                 write_checkmode_result_v2(**payload)
         else:
             return{
@@ -235,141 +317,219 @@ def requestingCodeCheck(
         return data
 
     except Exception as e:
-        print("This is the error Error:", e)
+        #print("This is the error Error:", e)
         time.sleep(60)
         return str(e)
 
 
-def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, rollingStateGuideMode: RollingStateGuideMode, session_id: str | None = None, user_id: str | None = None):
+def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focusLine: str, language: str, rollingStateGuideMode: RollingStateGuideMode, session_id: str | None = None, user_id: str | None = None):
     problem = problem
     topics = topics
     fullCode = code
     focusBlock = focusLine
     nudgesSoFar = rollingStateGuideMode.nudges
-#    - Place it into EXACTLY ONE relevant topic array
-    # system_prompt = """
-    # You are provided a Code block and a Focus Line
-    # Your job is to Focus on the Focus Line only, and see if it has syntax errors
-    # If there are syntax errors that affects time complexity or quality of code, provide a short correction.
-    # The correction should be short and precise.
-    # When the correction nudge is provided, make sure to fill in the respective Topic keys which seems fit.
-    # DO NOT invent new Topic keys. Just follow the Topic keys given in the Topics field given in user prompt.
-    
-    # ────────────────────────
-    # OUTPUT FORMAT (MANDATORY)
-    # ────────────────────────
+    try:
+        nudges_count = len(nudgesSoFar) if nudgesSoFar is not None else 0
+        #print("nudges so far: ", nudges_count)
+    except TypeError:
+        nudges_count = 0
+    #print(f"guideModeAssist nudgesSoFar count={nudges_count} nudgesSoFar={nudgesSoFar}")
 
-    # Return ONLY valid JSON.
-    # No markdown.
-    # No backticks.
-    # No extra text.
 
-    # Schema:
-    # "nudge": string,                        // "" if no nudge
-    # "topics": {                             // ONLY new items
-    #     "<topic>": {
-    #         "thoughts_to_remember": string[],
-    #         "pitfalls": string[]
-    #     }
-    # }
-
-    # If not corrections are required in the Focus Line, output empty json:
-    # {"nudge":"", "topics":{}}
-    
-    # REMEMBER: You are preparing this student to get better at solving DSA problems.
-    # """
     system_prompt = """
-    You are provided a Code block and a Focus Line.
+       You are a SILENT coding mentor.
 
-    Your job is to analyze the Focus Line ONLY and determine whether it contains
-    ANY syntax errors or code-quality issues that warrant correction.
+        You are observing a student solve a LeetCode problem line by line.
 
-    IMPORTANT BEHAVIOR RULE (HARD STOP):
+        You are given:
+        - Full code (context only — DO NOT critique it)
+        - Programming language the user is using for this problem
+        - A Focus line (the ONLY thing you may evaluate)
+        - Topics (existing durable learnings; topic keys are fixed)
+        - NudgesRolling (nudges already shown)
 
-    If the Focus Line has NO syntax errors, NO code-quality issues,
-    or NOTHING NEW to correct or add,
-    you MUST return EXACTLY the following JSON and NOTHING else:
+        Your default behavior is to stay silent.
 
-    {"nudge":"", "topics":{}}
+        ────────────────────────
+        HARD SILENCE RULE (CRITICAL)
+        ────────────────────────
 
-    DO NOT:
-    - Explain that the line is correct
-    - State that there are no errors
-    - Praise the code
-    - Summarize or comment on correctness
-    - Add any text outside the JSON
+        If the Focus block is:
+        - Correct, OR
+        - Reasonable, OR
+        - Incomplete but not wrong yet (placeholder, partial statement, unfinished block), OR
+        - Something the student can safely continue building without error
 
-    If you output ANY text other than the JSON above in this case,
-    the response is INVALID.
+        You MUST return EXACTLY:
+        {"nudge":"", "topics":{}}
 
-    ────────────────────────
-    WHEN A CORRECTION IS REQUIRED
-    ────────────────────────
+        DO NOT:
+        - Praise the code
+        - Say it is correct
+        - Explain reasoning
+        - Teach concepts
+        - Reveal solutions
+        - Predict the next step
+        - Suggest what to write next
+        - Mention missing future code (e.g., “handle X later”, “add a return after this”)
+        - Give multi-step or forward-looking guidance
 
-    If and ONLY IF the Focus Line contains an actual issue:
+        Silence is success.
 
-    1) Provide a SINGLE-LINE nudge that is short, precise, and corrective.
-    - No newlines
-    - No markdown
-    - No backticks
-    - No code fences
+        ────────────────────────
+        WHEN YOU ARE ALLOWED TO SPEAK (ONLY THESE)
+        ────────────────────────
 
-    2) For syntax errors, the nudge MUST include the fully corrected line verbatim.
+        You may respond ONLY if the Focus block ITSELF introduces a concrete, present issue that will:
 
-    3) If the issue affects time complexity or long-term code quality,
-    provide a 1-line directional nudge WITHOUT revealing the solution.
+        1) FAIL TO COMPILE (syntax / compilation error)
+        2) USE AN INVALID OR NON-EXISTENT API OR METHOD
+        3) CAUSE A TYPE MISMATCH
+        4) CAUSE DEFINITE INCORRECT BEHAVIOR already determined by THIS line
+        5) CAUSE A PROVABLE STRUCTURAL DEFECT introduced by THIS line alone
 
-    4) Populate ONLY the relevant existing Topic key(s):
-    - Add exactly ONE entry to "pitfalls" describing what the user did wrong.
-    - Add exactly ONE entry to "thoughts_to_remember" describing the correction.
+        A “structural defect” means:
+        - This line guarantees incorrect iteration (skip, duplicate, infinite loop), OR
+        - This line forces unnecessary extra passes that are unavoidable due to this structure
 
-    DO NOT invent new Topic keys.
-    DO NOT repeat or rephrase existing items in Topics or Nudges So Far.
-    If the issue already exists, return empty JSON.
+        Allowed structural examples:
+        - Loop bounds that already skip indices
+        - Loop structure that prevents true alternation in this problem
+        - Pointer movement that guarantees rework or incorrect ordering
+        - Suggesting a different loop just because it’s cleaner
+        - Recommending Math.min unless the current line already causes redundancy
 
-    ────────────────────────
-    OUTPUT FORMAT (MANDATORY)
-    ────────────────────────
+        NOT allowed as structural issues:
+        - Suggesting a different approach without a provable downside from THIS line
+        - Suggesting future steps or missing logic
 
-    Return ONLY valid JSON.
-    No markdown.
-    No backticks.
-    No extra text.
+        If none apply, remain silent:
+        {"nudge":"", "topics":{}}
 
-    Schema:
-    "nudge": string,
-    "topics": {
-        "<topic>": {
-            "thoughts_to_remember": string[],
-            "pitfalls": string[]
+        ────────────────────────
+        ANTI-PREEMPTION RULE (NEW – CRITICAL)
+        ────────────────────────
+
+        You MUST NOT:
+        - Tell the student what to do next
+        - Comment on logic that has not yet been written
+        - Warn about missing code that is not required yet
+        - Anticipate future branches, returns, or edge cases
+
+        ONLY judge the Focus block in isolation.
+
+        ────────────────────────
+        DEDUPLICATION (HARD CONSTRAINT)
+        ────────────────────────
+
+        Before generating any output, you MUST check:
+
+        A) NudgesRolling
+        - If the nudge you are about to output has the SAME meaning as ANY prior nudge
+        (even if phrased differently), return silent JSON.
+
+        B) Topics
+        - If the concept already exists anywhere in Topics
+        (thoughts_to_remember OR pitfalls), return silent JSON.
+
+        If unsure whether it is new → STAY SILENT.
+
+        Silent JSON:
+        {"nudge":"", "topics":{}}
+
+        You are not allowed to repeat yourself.
+
+        ────────────────────────
+        NUDGE RULES (STRICT)
+        ────────────────────────
+
+        If you respond:
+        - Output EXACTLY ONE nudge
+        - ONE LINE only
+        - Imperative, corrective tone (Fix…, Replace…, Use…, Prefer…)
+        - NO explanations
+        - NO reasoning
+        - NO multiple actions
+        - NO next steps
+        - NO formatting, NO markdown
+
+        Corrected line rule:
+        - If the issue is syntax/API/type related, include ONLY the corrected Focus line verbatim.
+        - Do NOT include surrounding code.
+        - If the fix requires more than one line, DO NOT speak.
+
+        Structural nudge rule:
+        - If structural, provide direction only (no code).
+        - Must be attributable solely to the Focus line.
+        - Must not mention future actions.
+
+        ────────────────────────
+        TOPICS OUTPUT RULES
+        ────────────────────────
+
+        Topics represent DURABLE, cross-problem learning — not local fixes.
+
+        Only when you output a NON-EMPTY nudge:
+        - You MAY add topic updates.
+
+        Rules:
+        1) Use ONLY existing topic keys (DO NOT invent new topics).
+        2) Add entries ONLY for the affected topic.
+        3) Add EXACTLY:
+        - ONE pitfall (what was done wrong; include context)
+        - ONE thoughts_to_remember (general correction/principle)
+        4) Both must be single-line, concise, no explanations.
+        5) If nothing new, output topics:{}.
+
+        Do NOT add topics for one-off local mistakes.
+
+        ────────────────────────
+        OUTPUT FORMAT (MANDATORY)
+        ────────────────────────
+
+        Return ONLY valid JSON.
+        No markdown.
+        No backticks.
+        No extra text.
+
+        Schema:
+        {
+        "nudge": string,
+        "topics": {
+            "<existing_topic_key>": {
+            "pitfalls": string[],
+            "thoughts_to_remember": string[]
+            }
         }
-    }
+        }
 
-    REMEMBER: You are preparing this student to get better at solving DSA problems.
-    """
+        If silent:
+        {"nudge":"", "topics":{}}
+        """
 
-
+    language_line = f"Preferred language: {language}\n" if language.strip() else ""
 
     user_prompt = f"""
     Guide mode input.
 
-    Full code
-    {fullCode}
+    Leetcode Problem: {problem}
 
-    Focus block:
-    {focusBlock}
+    Programming language: {language_line}
+    Full code: {fullCode}
 
-    Topics (JSON — keys are fixed, values contain existing notes):
-    {json.dumps(_serialize_topics(topics), indent=2)}
+    Focus block: {focusBlock}
 
-    Nudges so far:
-    {nudgesSoFar}
+    Topics (JSON — keys are fixed, values contain existing notes): {json.dumps(_serialize_topics(topics), indent=2)}
+
+    NudgesRolling: {nudgesSoFar}
 
     """
 
     try:
+        #print("these are the nudges given so far: ", nudgesSoFar)
         response = client.chat.completions.create(
             # model="gpt-3.5-turbo",
+            # model="deepseek-reasoner",
             model="gpt-4.1-mini-2025-04-14", # this made all the differnece! consider using groq
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -377,9 +537,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
                 
             ],
             response_format={"type": "json_object"},
-            # temperature=0.2,
         )
-        #log_token_usage("guide-mode", get_token_usage(response))
         
 
         raw = response.choices[0].message.content or ""
@@ -412,11 +570,19 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         data["isSimilarNudges"] = isSimilarNudges
         if session_id and user_id:
             enabled_key = rkey("guide:enabled", user_id, session_id)
-            if r.get(enabled_key):
+            enabled = r.get(enabled_key)
+            if enabled:
                 topics_key = rkey("guide:topics", user_id, session_id)
                 incoming = data.get("topics") or {}
+                topics_count, thoughts_count, pitfalls_count = _topic_counts(incoming)
+                # print(
+                #     "guideModeAssist redis merge topics="
+                #     f"{topics_count} thoughts={thoughts_count} pitfalls={pitfalls_count}"
+                # )
                 r.eval(_LUA_MERGE_TOPICS, 1, topics_key, json.dumps(incoming), str(GUIDE_TTL_SECONDS))
-        #print("LLM data: ", data)
+            else:
+                print("guideModeAssist redis merge skipped: guide not enabled")
+        # #print("LLM data: ", data)
         
 
         return data
@@ -541,36 +707,52 @@ def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, st
         return {"notes_summary": "", "pitfalls_summary": ""}
     
     system_prompt = """
-    You are a summarizer that converts noisy, repetitive learning logs into a clean study checklist with good formatting.
+    You are a summarizer that condenses a user’s learning history into a QUICK-GLANCE checklist.
 
-    You will receive two lists:
-    - Notes (things to remember)
-    - Pitfalls (common mistakes)
+        You will receive:
+        - Notes: concrete “to remember” items collected during solving
+        - Pitfalls: concrete mistakes the user actually made
 
-    GOAL
-    Produce the same level of output as a human would write:
-    - de-duplicated
-    - short
-    - readable
-    - action-oriented
-    - generalized (not tied to one problem unless unavoidable)
+        CRITICAL GOAL
+        The summary must reflect ONLY what appears in the input.
+        Do NOT introduce new concepts, advice, or patterns that are not directly implied by the given points.
 
-    RULES
-    1) Do NOT copy sentences verbatim from the input. Rewrite and abstract.
-    2) Merge repeated or near-duplicate ideas into ONE point.
-    3) Keep only high-signal items (skip trivial restatements).
-    4) Prefer "principles" + "common failure modes" (indexing, bounds, loop direction, API usage, Time complexity etc.).
-    5) Output format:
-    - notes_summary: 5–10 bullet points, each 8–18 words, starting with a verb (e.g., "Use", "Avoid", "Check").
-    - pitfalls_summary: 5–10 bullet points, same style.
-    6) Do not include numbering, headings, or extra keys.
-    7) Bolding key words is nice.
-    8) Return ONLY valid JSON with exactly:
-    {"notes_summary": [...], "pitfalls_summary": [...]}
-    Where both values are arrays of strings. No markdown. No trailing commentary.
+        MENTAL MODEL
+        This is a compressed diff of:
+        - what went wrong
+        - what fixed it
 
-    
-    """
+        RULES (STRICT)
+        1) Do NOT invent new learnings.
+        2) Do NOT generalize beyond the scope of the input.
+        3) Every summary bullet must be traceable to at least one input item.
+        4) Merge duplicates, but NEVER add new ideas.
+        5) Keep items SHORT and SCANNABLE (glanceable in 2–3 seconds).
+
+        CONTENT STYLE
+        - Pitfalls should resemble the mistake itself (code-like or specific).
+        - Notes should resemble the fix or rule that corrected it.
+        - Prefer concrete over abstract.
+        - Long-term DSA principles are OPTIONAL and allowed ONLY if clearly supported by the input.
+
+        FORMAT RULES
+        - notes_summary: 3–7 bullets
+        - pitfalls_summary: 3–7 bullets
+        - Each bullet: 6–14 words
+        - Start bullets with verbs when possible.
+        - No numbering.
+        - No headings.
+        - No explanations.
+        - No examples.
+
+        OUTPUT
+        Return ONLY valid JSON with exactly:
+
+        {
+        "notes_summary": string[],
+        "pitfalls_summary": string[]
+        }
+        """
 
 
     notes_block = "\n".join(f"- {n}" for n in notes if n)

@@ -139,6 +139,12 @@ async function handleMessage(message: VibeTutorMessage) {
       }
       return handleGuideModeStatus(message.payload);
     }
+    case "init-session-topics": {
+      if (!isSessionInitPayload(message.payload)) {
+        return { success: false, error: "Invalid session init payload" };
+      }
+      return handleSessionInit(message.payload);
+    }
     case "check-code": {
       if (!isCheckCodePayload(message.payload)) {
         return { success: false, error: "Invalid check code payload" };
@@ -154,12 +160,6 @@ async function handleMessage(message: VibeTutorMessage) {
         return { success: false, error: "Invalid solution payload" };
       }
       return handleSolution(message.payload);
-    }
-    case "set-timer": {
-      if (!isTimerPayload(message.payload)) {
-        return { success: false, error: "Invalid timer payload" };
-      }
-      return handleSetTimer(message.payload);
     }
     case "go-to-workspace":
       return handleGoToWorkspace(message.payload as { url?: string });
@@ -246,6 +246,7 @@ async function handleGuideMode(payload: {
   >;
   code: string;
   focusLine: string;
+  language: string;
   rollingStateGuideMode: RollingStateGuideMode;
 }) {
   console.debug(
@@ -260,6 +261,7 @@ async function handleGuideMode(payload: {
     payload.topics,
     payload.code,
     payload.focusLine,
+    payload.language,
     payload.rollingStateGuideMode,
   );
 }
@@ -276,6 +278,46 @@ async function handleGuideModeStatus(payload: {
     return { success: false, error: "Unauthorized" };
   }
   return forwardGuideModeStatus(payload, auth.jwt);
+}
+
+async function handleSessionInit(payload: {
+  sessionId: string;
+  topics: Record<string, { thoughts_to_remember: string[]; pitfalls: string[] }>;
+}) {
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, error: "Unauthorized" };
+  }
+  return forwardSessionInit(payload, auth.jwt);
+}
+
+async function forwardSessionInit(
+  payload: {
+    sessionId: string;
+    topics: Record<string, { thoughts_to_remember: string[]; pitfalls: string[] }>;
+  },
+  token: string,
+) {
+  const result = await fetchJsonWithTimeout<{ success?: boolean; error?: string }>(
+    `${BACKEND_BASE_URL}/api/session/init`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!result.success) return result;
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Session init failed"),
+    };
+  }
+  return { success: true };
 }
 
 async function forwardGuideModeStatus(
@@ -321,6 +363,7 @@ async function forwardCodeToBackendGuideMode(
   >,
   code: string,
   focusLine: string,
+  language: string,
   rollingStateGuideMode: RollingStateGuideMode,
 ) {
   const auth = await getAuthState();
@@ -344,6 +387,7 @@ async function forwardCodeToBackendGuideMode(
       topics,
       code,
       focusLine,
+      language,
       rollingStateGuideMode,
     }),
   });
@@ -366,6 +410,7 @@ async function handleCheckCode(payload: {
   >;
   code: string;
   action: string;
+  language: string;
   problem_no: number | null;
   problem_name: string;
   problem_url: string;
@@ -376,6 +421,7 @@ async function handleCheckCode(payload: {
     payload.topics,
     payload.code,
     payload.action ?? "check-code",
+    payload.language,
     payload.problem_no,
     payload.problem_name,
     payload.problem_url,
@@ -421,13 +467,14 @@ type AuthState = {
   userId: string;
   jwt: string;
   accessToken?: string;
+  refreshToken?: string;
   issuedAt?: number;
   expiresAt?: number;
 };
 const AUTH_STORAGE_KEY = "vibetutor-auth";
 const BACKEND_BASE_URL = "http://127.0.0.1:8000";
 const WORKSPACE_STATE_KEY = "vibetutor-workspace-state";
-const AUTH_TOKEN_TTL_MS = 30 * 60 * 1000;
+const AUTH_TOKEN_TTL_MS = 16 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 type BackendFetchSuccess<T> = {
@@ -534,12 +581,6 @@ async function handleSolution(payload: { sessionId: string }) {
   };
 }
 
-async function handleSetTimer(payload: { sessionId: string; timer: unknown }) {
-  console.debug("VibeTutor: timer payload received", payload);
-  // TODO: persist timer state to storage / backend
-  return { success: true };
-}
-
 async function handleGoToWorkspace(payload?: { url?: string }) {
   try {
     const url = payload?.url?.trim();
@@ -558,11 +599,17 @@ async function handleGoToWorkspace(payload?: { url?: string }) {
     const result = await fetchJsonWithTimeout<{
       success?: boolean;
       code?: string;
+      access_token?: string;
+      refresh_token?: string;
       error?: string;
     }>(`${BACKEND_BASE_URL}/api/auth/bridge/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_token: auth.accessToken, state }),
+      body: JSON.stringify({
+        access_token: auth.accessToken,
+        refresh_token: auth.refreshToken,
+        state,
+      }),
     });
     if (!result.success) return result;
     if (result.data?.success === false || !result.data?.code) {
@@ -571,6 +618,13 @@ async function handleGoToWorkspace(payload?: { url?: string }) {
         status: result.status,
         error: extractErrorMessage(result.data, "Workspace auth bridge failed"),
       };
+    }
+    if (result.data?.access_token) {
+      await setAuthState({
+        ...auth,
+        accessToken: result.data.access_token,
+        refreshToken: result.data.refresh_token ?? auth.refreshToken,
+      });
     }
     const separator = url.includes("?") ? "&" : "?";
     const target = `${url}${separator}code=${encodeURIComponent(
@@ -592,6 +646,7 @@ async function forwardCodeForCheckMode(
   >,
   code: string,
   action: string,
+  language: string,
   problem_no: number | null,
   problem_name: string,
   problem_url: string,
@@ -615,6 +670,7 @@ async function forwardCodeForCheckMode(
       topics,
       code,
       action,
+      language,
       problem_no,
       problem_name,
       problem_url,
@@ -748,6 +804,7 @@ function isGuideModePayload(payload: unknown): payload is {
   >;
   code: string;
   focusLine: string;
+  language: string;
   rollingStateGuideMode: RollingStateGuideMode;
 } {
   if (typeof payload !== "object" || payload === null) return false;
@@ -759,6 +816,7 @@ function isGuideModePayload(payload: unknown): payload is {
   if (typeof p.problem !== "string") return false;
   if (typeof p.code !== "string") return false;
   if (typeof p.focusLine !== "string") return false;
+  if (typeof p.language !== "string") return false;
 
   if (typeof p.topics !== "object" || p.topics === null) return false;
 
@@ -775,6 +833,7 @@ function isCheckCodePayload(payload: unknown): payload is {
   >;
   code: string;
   action?: string;
+  language: string;
   problem_no: number | null;
   problem_name: string;
   problem_url: string;
@@ -786,6 +845,7 @@ function isCheckCodePayload(payload: unknown): payload is {
   if (typeof p.topics !== "object" || p.topics === null) return false;
   if (typeof p.code !== "string") return false;
   if (typeof p.action !== "string") return false;
+  if (typeof p.language !== "string") return false;
   if (
     !("problem_no" in p) ||
     (p.problem_no !== null && typeof p.problem_no !== "number")
@@ -819,22 +879,24 @@ function isGuideModeStatusPayload(payload: unknown): payload is {
   return true;
 }
 
+function isSessionInitPayload(payload: unknown): payload is {
+  sessionId: string;
+  topics: Record<string, { thoughts_to_remember: string[]; pitfalls: string[] }>;
+} {
+  if (typeof payload !== "object" || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.sessionId !== "string") return false;
+  if (typeof p.topics !== "object" || p.topics === null) return false;
+  return Object.values(p.topics as Record<string, unknown>).every(
+    isTopicBucket,
+  );
+}
+
 function isSolutionPayload(payload: unknown): payload is { sessionId: string } {
   return (
     typeof payload === "object" &&
     payload !== null &&
     typeof (payload as { sessionId?: unknown }).sessionId === "string"
-  );
-}
-
-function isTimerPayload(
-  payload: unknown,
-): payload is { sessionId: string; timer: unknown } {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    typeof (payload as { sessionId?: unknown }).sessionId === "string" &&
-    "timer" in (payload as object)
   );
 }
 
@@ -933,6 +995,8 @@ async function supabaseLogin(payload: { email: string; password: string }) {
     userId?: string;
     accessToken?: string;
     access_token?: string;
+    refreshToken?: string;
+    refresh_token?: string;
     error?: string;
   }>(`${BACKEND_BASE_URL}/api/auth/login`, {
     method: "POST",
@@ -957,6 +1021,9 @@ async function supabaseLogin(payload: { email: string; password: string }) {
     accessToken:
       (result.data.accessToken as string | undefined) ??
       (result.data.access_token as string | undefined),
+    refreshToken:
+      (result.data.refreshToken as string | undefined) ??
+      (result.data.refresh_token as string | undefined),
     issuedAt: now,
     expiresAt: now + AUTH_TOKEN_TTL_MS,
   };
@@ -976,6 +1043,8 @@ async function supabaseSignup(payload: {
     userId?: string;
     accessToken?: string;
     access_token?: string;
+    refreshToken?: string;
+    refresh_token?: string;
     requiresVerification?: boolean;
     error?: string;
   }>(`${BACKEND_BASE_URL}/api/auth/signup`, {
@@ -1013,6 +1082,9 @@ async function supabaseSignup(payload: {
     accessToken:
       (result.data.accessToken as string | undefined) ??
       (result.data.access_token as string | undefined),
+    refreshToken:
+      (result.data.refreshToken as string | undefined) ??
+      (result.data.refresh_token as string | undefined),
     issuedAt: now,
     expiresAt: now + AUTH_TOKEN_TTL_MS,
   };
