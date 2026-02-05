@@ -6,6 +6,8 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+from services.sessionState import dedupe_and_update_session_state
+
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL","")
@@ -14,6 +16,102 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY","")
 _GUIDE_BUFFER: list[dict[str, Any]] = []
 _DB_WRITE_IN_FLIGHT = False
 _RETRY_SCHEDULED = False
+
+
+def _topic_counts(topics: Any) -> tuple[int, int, int]:
+    total_topics = len(topics) if isinstance(topics, dict) else 0
+    total_thoughts = 0
+    total_pitfalls = 0
+    if not isinstance(topics, dict):
+        return total_topics, total_thoughts, total_pitfalls
+    for payload in topics.values():
+        if not isinstance(payload, dict):
+            continue
+        thoughts = payload.get("thoughts_to_remember")
+        pitfalls = payload.get("pitfalls")
+        if isinstance(thoughts, list):
+            total_thoughts += len([t for t in thoughts if isinstance(t, str) and t.strip()])
+        elif isinstance(thoughts, str) and thoughts.strip():
+            total_thoughts += 1
+        if isinstance(pitfalls, list):
+            total_pitfalls += len([p for p in pitfalls if isinstance(p, str) and p.strip()])
+        elif isinstance(pitfalls, str) and pitfalls.strip():
+            total_pitfalls += 1
+    return total_topics, total_thoughts, total_pitfalls
+
+
+def _normalize_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return [cleaned] if cleaned else []
+    return []
+
+
+def _discarded_items(incoming: list[str], kept: list[str]) -> list[str]:
+    kept_counts: dict[str, int] = {}
+    for item in kept:
+        key = item.strip()
+        if not key:
+            continue
+        kept_counts[key] = kept_counts.get(key, 0) + 1
+
+    discarded: list[str] = []
+    for item in incoming:
+        key = item.strip()
+        if not key:
+            continue
+        if kept_counts.get(key, 0) > 0:
+            kept_counts[key] -= 1
+        else:
+            discarded.append(key)
+    return discarded
+
+
+def _log_discarded(incoming_topics: Any, kept_topics: Any) -> None:
+    if not isinstance(incoming_topics, dict):
+        return
+    max_items = 6
+    for topic, payload in incoming_topics.items():
+        if not isinstance(payload, dict):
+            continue
+        kept_payload = (
+            kept_topics.get(topic) if isinstance(kept_topics, dict) else None
+        )
+        kept_payload = kept_payload if isinstance(kept_payload, dict) else {}
+
+        incoming_thoughts = _normalize_list(payload.get("thoughts_to_remember"))
+        incoming_pitfalls = _normalize_list(payload.get("pitfalls"))
+        kept_thoughts = _normalize_list(kept_payload.get("thoughts_to_remember"))
+        kept_pitfalls = _normalize_list(kept_payload.get("pitfalls"))
+
+        discarded_thoughts = _discarded_items(incoming_thoughts, kept_thoughts)
+        discarded_pitfalls = _discarded_items(incoming_pitfalls, kept_pitfalls)
+
+        if not discarded_thoughts and not discarded_pitfalls:
+            continue
+
+        parts: list[str] = []
+        if discarded_thoughts:
+            # print("55555757%%%%%%%%%%%%gkhl%%%%%%%%%%%%%%%%%%%%%%%%%%%68768979")
+            shown = discarded_thoughts[:max_items]
+            suffix = (
+                f" (+{len(discarded_thoughts) - max_items} more)"
+                if len(discarded_thoughts) > max_items
+                else ""
+            )
+            parts.append(f"thoughts_discarded={shown}{suffix}")
+        if discarded_pitfalls:
+            # print("55555757%%%%%%%%%%%%gkhl%%%%%%%%%%%%%%%%%%%%%%%%%%%68768979")
+            shown = discarded_pitfalls[:max_items]
+            suffix = (
+                f" (+{len(discarded_pitfalls) - max_items} more)"
+                if len(discarded_pitfalls) > max_items
+                else ""
+            )
+            parts.append(f"pitfalls_discarded={shown}{suffix}")
+        print(f"dbWriter: dedupe discarded topic='{topic}' " + " ".join(parts))
 
 
 @dataclass(frozen=True)
@@ -68,6 +166,7 @@ def write_checkmode_result_v2(
     topics: dict[str, dict[str, list[str]]],  # LLM "topics" section
     response_text: str,
     date_touched: date | None = None,
+    origin: str | None = None,
 ) -> None:
     """
     Schema assumptions (column names can be adjusted):
@@ -79,8 +178,45 @@ def write_checkmode_result_v2(
       - note_topics: note_id, topic_id, UNIQUE(note_id, topic_id)
       - topic_notes: note_id, topic_id, note_made, pitfalls, UNIQUE(note_id, topic_id)
     """
+    print("entering to write to the db :\n")
     if not user_id or not response_text:
         return
+    incoming_topics = topics
+    print("This is the incoming topics: \n", incoming_topics)
+    print()
+    # if topics and origin == "checkmode":
+    #     print("this is the topics: ",topics)
+    #     in_topics, in_thoughts, in_pitfalls = _topic_counts(topics) #getting the count of total topics, total thoughts and total pitfalls
+    #     print(
+    #         "dbWriter: incoming topics="
+    #         f"{in_topics} thoughts={in_thoughts} pitfalls={in_pitfalls} "
+    #         f"user={user_id} session={session_id}"
+    #     )
+    if topics:
+        print("Topics received")
+        print()
+        deduped_topics = dedupe_and_update_session_state(
+            user_id,
+            session_id,
+            topics,
+        )
+        if not deduped_topics:
+            _log_discarded(incoming_topics, {})
+            print(
+                "dbWriter: dedupe removed all topics, skipping write "
+                f"user={user_id} session={session_id}"
+            )
+            return
+        topics = deduped_topics
+        print("these are the deduped topics: ", deduped_topics)
+        print()
+        _log_discarded(incoming_topics, topics)
+        out_topics, out_thoughts, out_pitfalls = _topic_counts(topics)
+        print(
+            "dbWriter: dedupe kept topics="
+            f"{out_topics} thoughts={out_thoughts} pitfalls={out_pitfalls} "
+            f"user={user_id} session={session_id}"
+        )
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         return
 

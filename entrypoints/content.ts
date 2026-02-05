@@ -23,9 +23,10 @@ let isWindowOpen = false;
 let dragOffset = { x: 0, y: 0 };
 let lastPosition = { x: 0, y: 0 };
 let menuCloseTimeout: number | null = null;
-let globalLogo: string; // Global variable for smiley face URL
 let globalMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
 let flushInFlight: boolean;
+let panelHideTimerId: number | null = null;
+let suspendPanelOps = false;
 type Pair = [string, string];
 let queue: Pair[] = [];
 let currentBatch: Pair;
@@ -61,24 +62,8 @@ function createFloatingWidget() {
   widget = document.createElement("div");
   widget.id = "tutor-widget";
 
-  let logo: string;
-  try {
-    logo = browser.runtime.getURL("logo.png" as any);
-    globalLogo = logo;
-  } catch (error) {
-    console.warn("There is an error loading the logo: ", error);
-    const extensionId = browser.runtime.id || chrome.runtime.id;
-    logo = `chrome-extension://${extensionId}/logo.png`;
-    globalLogo = logo; // Store globally
-  }
-
-  console.log("StickyNoteAI: Image URLs:", { logo });
-  console.log("StickyNoteAI: Extension ID:", browser.runtime.id);
-  console.log("StickyNoteAI: Chrome runtime ID:", chrome.runtime.id);
-
   widget.innerHTML = `
   <div class="widget-main-button" id="main-button">
-  <img src="${logo}" alt="Widget" style="width: 24px; height: 24px;" id="logo-image">
   </div>
   `;
 
@@ -95,30 +80,31 @@ function createFloatingWidget() {
   pointer-events: auto;
   }
   
-  .widget-main-button {
+.widget-main-button {
       width: 50px;
       height: 50px;
-      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      background: linear-gradient(135deg, #C8D0CC 0%, #A7B2AD 100%);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 20px;
       cursor: pointer;
-      box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
+      box-shadow: 0 4px 16px rgba(47,59,56,0.18);
       transition: all 0.3s ease;
-      border: 2px solid rgba(255, 255, 255, 0.3);
+      /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
+      color: #ffffff;
     }
-      .widget-main-button.dragging {
+.widget-main-button.dragging {
       cursor: grabbing !important;
       transform: scale(0.95);
       box-shadow: 
-        0 8px 30px rgba(153, 41, 234, 0.7),
-        0 0 25px rgba(153, 41, 234, 0.9),
-        0 0 50px rgba(204, 102, 218, 0.7),
-        0 0 80px rgba(204, 102, 218, 0.5);
+        0 8px 30px rgba(47,59,56,0.35),
+    /*     0 0 25px rgb(120, 126, 123), */
+    /*    0 0 50px rgba(204, 102, 218, 0.7), */
+    /*    0 0 80px rgba(204, 102, 218, 0.5); */
       animation: none;
     }
       
@@ -128,22 +114,22 @@ function createFloatingWidget() {
 
 .tutor-panel{
   position: fixed;
-  width: 450px;
-  height: 400px;
+  width: 430px;
+  height: 280px;
 
-  /* Sticky note look */
-  background: rgba(255, 251, 147, 0.98);
-  border-radius: 4px;
-  border: 1px solid rgba(0,0,0,0.10);
-
-/*  box-shadow:
-    0 14px 30px rgba(0,0,0,0.18),
-    0 2px 6px rgba(0,0,0,0.10); */
+  background: #EEF1F0;
+  border-radius: 7px;
+  border: none;
+  box-shadow:
+    0 14px 30px rgba(47,59,56,0.18),
+    0 2px 6px rgba(47,59,56,0.10);
 
   z-index: 999997;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: Calibri, sans-serif;
+  font-size: 13px;
+  color: #2F3B38;
 
-  transform: scale(0.9) rotate(0deg);
+  transform: none;
   opacity: 0;
 
   transition:
@@ -164,16 +150,25 @@ function createFloatingWidget() {
 }
 
 .tutor-panel-shellbar{
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  background: rgba(239, 230, 188, 0.65);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  min-height: 44px;
+  padding: 8px 12px;
+  background: #D6DDD9;
+  border-bottom: 1px solid #C1C9C5;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
   cursor: grab;
+  justify-content: flex-end;
+}
+.tutor-panel-shellbar:hover{
+  background: #C8D0CC;
 }
 
 .tutor-panel-shellbar:active{
+  background: #C8D0CC;
   cursor: grabbing;
 }
 
@@ -193,7 +188,11 @@ function createFloatingWidget() {
 
 .tutor-panel.open {
   opacity: 1;
-  transform: scale(0.9) rotate(0deg);
+  transform: none;
+}
+
+.tutor-panel.closing{
+  pointer-events: none;
 }
 
 .tutor-panel-loading{
@@ -205,21 +204,21 @@ function createFloatingWidget() {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(0,0,0,0.15);
+  background: #F7F9F8;
+  border: 1px solid #C1C9C5;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: rgba(0,0,0,0.75);
-  box-shadow: 0 6px 14px rgba(0,0,0,0.12);
+  color: #2F3B38;
+  box-shadow: 0 6px 14px rgba(47,59,56,0.12);
 }
 
 .tutor-panel-loading-spinner{
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(0,0,0,0.2);
-  border-top-color: rgba(0,0,0,0.6);
+  border: 2px solid rgba(93,106,102,0.35);
+  border-top-color: rgba(93,106,102,0.9);
   animation: tutorPanelSpin 0.8s linear infinite;
 }
 
@@ -228,12 +227,31 @@ function createFloatingWidget() {
   to { transform: rotate(360deg); }
 }
 
+.tutor-panel-assistant-loading{
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+}
+
+.tutor-panel-assistant-loading-dot{
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(93,106,102,0.6);
+  animation: tutorPanelBlink 0.9s ease-in-out infinite;
+}
+
+@keyframes tutorPanelBlink{
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50% { opacity: 0.9; transform: scale(1); }
+}
+
 .tutor-panel.dragging{
   cursor: grabbing !important;
   transform: scale(0.98) rotate(-0.4deg);
   box-shadow:
-    0 18px 50px rgba(0,0,0,0.25),
-    0 2px 10px rgba(0,0,0,0.12);
+    0 18px 50px rgba(47,59,56,0.25),
+    0 2px 10px rgba(47,59,56,0.12);
 }
 
 /* Top bar */
@@ -242,11 +260,9 @@ function createFloatingWidget() {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-
   padding: 10px 10px;
-
-  background: rgba(239, 230, 188, 0.75);
-  border-bottom: 1px solid rgba(0,0,0,0.10);
+  background: transparent;
+  border-bottom: none;
 }
 
 /* Close button */
@@ -256,9 +272,9 @@ function createFloatingWidget() {
   border: none;
   border-radius: 4px;
 
-  background: rgba(231, 218, 225, 0.45);
-  color: rgba(0,0,0,0.85);
-  font-size: 18px;
+  /* background: rgba(231, 218, 225, 0.45); */
+  color: #5D6A66;
+  font-size: 13px;
   line-height: 1;
 
   cursor: pointer;
@@ -268,14 +284,14 @@ function createFloatingWidget() {
 }
 .tutor-panel-close:hover{
   transform: scale(1.06);
-  background: rgba(237, 107, 172, 0.55);
+  background: rgba(200,208,204,0.6);
 }
 
 /* Actions row */
 .tutor-panel-actions{
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 
   /* IMPORTANT: don’t let this become a giant green slab */
   background: transparent;
@@ -286,47 +302,30 @@ function createFloatingWidget() {
 /* Buttons */
 .btn-guide-mode,
 .btn-help-mode,
-.btn-timer{
-  border: 1px solid rgba(0,0,0,0.12);
-  background: rgba(229, 233, 226, 0.92);
-  color: rgba(0,0,0,0.85);
+.btn-gotToWorkspace{
+  border: none;
+  background: #D6DDD9;
+  color: #2F3B38;
 
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: 8px;
 
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+  transition: background 120ms ease, color 120ms ease;
 }
 .btn-guide-mode:not(:disabled):hover,
-.btn-timer:not(:disabled):hover{
-  transform: translateY(-1px);
-  filter: brightness(0.98);
-  
+.btn-help-mode:not(:disabled):hover,
+.btn-gotToWorkspace:not(:disabled):hover{
+  background: #C8D0CC;
 }
 .btn-guide-mode:active,
 .btn-help-mode:active,
-.btn-timer:active{
-  transform: translateY(0px);
-}
-
-.btn-help-mode:not(:disabled):hover
-{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
-}
-
-.btn-guide-mode:not(:disabled):hover
-{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
+.btn-gotToWorkspace:active{
+  background: #C8D0CC;
 }
 
 
@@ -337,60 +336,52 @@ function createFloatingWidget() {
 }
 
 .btn-guide-mode.is-loading{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
+  background: #A7B2AD;
   animation: hoverPulse 1.2s ease-in-out infinite;
 }
 
 
 .btn-help-mode.is-loading{
-  filter: brightness(0.95) saturate(1.1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  border-color: rgba(0,0,0,0.25);
-  background: rgba(195, 237, 152, 0.95);
+  background: #A7B2AD;
   animation: hoverPulse 1.2s ease-in-out infinite;
   }
 
 .tutor-panel.checkmode-active .btn-guide-mode,
-.tutor-panel.checkmode-active .btn-timer,
-.tutor-panel.checkmode-active .tutor-panel-send{
+.tutor-panel.checkmode-active .tutor-panel-send,
+.tutor-panel.checkmode-active .btn-gotToWorkspace{
   position: relative;
   pointer-events: none;
   opacity: 0.6;
   cursor: not-allowed;
 }
 .tutor-panel.checkmode-active .btn-guide-mode::after,
-.tutor-panel.checkmode-active .btn-timer::after,
 .tutor-panel.checkmode-active .tutor-panel-send::after{
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
-  color: rgba(0,0,0,0.7);
+  color: #5D6A66;
 }
 
 .tutor-panel.guidemode-active .btn-help-mode,
-.tutor-panel.guidemode-active .btn-timer,
-.tutor-panel.guidemode-active .tutor-panel-send{
+.tutor-panel.guidemode-active .tutor-panel-send,
+.tutor-panel.guidemode-active .btn-gotToWorkspace{
   position: relative;
   pointer-events: none;
   opacity: 0.6;
   cursor: not-allowed;
 }
 .tutor-panel.guidemode-active .btn-help-mode::after,
-.tutor-panel.guidemode-active .btn-timer::after,
 .tutor-panel.guidemode-active .tutor-panel-send::after{
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
-  color: rgba(0,0,0,0.7);
+  color: #5D6A66;
 }
 
 
@@ -400,121 +391,281 @@ function createFloatingWidget() {
   padding: 12px;
   overflow-x: hidden;
 
-  background: rgba(255, 255, 255, 0.35);
+  background: transparent;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  font-size: 13px;
 }
 
 .tutor-panel-auth{
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 280px;      /* smaller box */
-  padding: 12px;
- /* inset: 16px; */
+  inset: 0;
+  transform: none;
+  width: auto;
+  padding: 60px 16px 16px;
   z-index: 2;
-  padding: 12px;
- /* border: 1px dashed rgba(0,0,0,0.2); */
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(5px);
+  border-radius: 7px;
+  background: rgba(238, 241, 240, 0.85);
+  backdrop-filter: blur(50px);
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
+  box-sizing: border-box;
+}
+.tutor-panel-auth .auth-error{
+  display: none;
+  width: 100%;
+  margin: 0 0 8px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+ /* background: rgba(244, 67, 54, 0.12); */
+  color: rgba(195, 49, 38, 0.95);
+  font-weight: 700;
+  font-size: 13px;
+}
+.tutor-panel-auth .auth-password-hint{
+  display: none;
+  width: 100%;
+  margin: 6px 0 0 0;
+  color: rgba(195, 49, 38, 0.95);
+  /* font-weight: 100; */
+  font-size: 13px;
+}
+.tutor-panel-auth .auth-actions{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  margin-top: 6px;
+  width: 100%;
+  max-width: 320px;
+}
+.tutor-panel-auth .auth-name-row{
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+}
+.tutor-panel-auth .auth-name-row input{
+  flex: 1;
+  min-width: 0;
+}
+.tutor-panel-auth .auth-password-wrap{
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+}
+.tutor-panel-auth .auth-password-wrap .auth-password{
+  width: 100%;
+  padding-right: 34px;
+}
+.tutor-panel-auth .auth-password-toggle{
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-40%);
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: #5D6A66;
+  cursor: pointer;
+}
+.tutor-panel-auth .auth-password-toggle:hover{
+  color: #2F3B38;
+}
+.tutor-panel-auth .auth-password-toggle svg{
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+.tutor-panel-auth .auth-sep{
+  font-weight: 700;
+  color: #7C8A85;
+  user-select: none;
 }
 .tutor-panel-auth h4{
   margin: 0 0 8px 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 .tutor-panel-auth label{
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin: 6px 0 2px;
 }
 .tutor-panel-auth input{
   width: 100%;
+  max-width: 320px;
   padding: 6px 8px;
-  border: 1px solid rgba(0,0,0,0.2);
+  border: 1px solid #A7B2AD;
   border-radius: 6px;
   margin-top: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  background: #F7F9F8;
 }
 .tutor-panel-auth button{
   margin-top: 8px;
   padding: 6px 10px;
   border-radius: 6px;
-  border: 1px solid rgba(0,0,0,0.2);
-  background: rgba(229, 233, 226, 0.92);
   font-weight: 600;
   cursor: pointer;
+}
+.tutor-panel-auth .auth-actions button{
+  margin-top: 0;
+}
+
+.tutor-panel-auth input:focus{
+  outline: none;
+  box-shadow: none;
+  border-color: #7C8A85; /* keep same border */
+}
+
+
+.tutor-panel-auth .auth-back{
+  margin-top: -6px; /* or 2px */
+}
+
+.tutor-panel-auth button{
+  color: #5D6A66;
+}
+
+.tutor-panel-auth button:hover {
+  color: #2F3B38; /* pick the text color you want on hover */
 }
 
 .tutor-panel-auth .auth-supabase{
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(0,0,0,0.1);
+  border-top: 1px solid #C1C9C5;
 }
 
 .tutor-panel-message{
   margin: 0;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 8px;
-  color: rgba(0,0,0,0.86);
-  font-size: 14px;
-  line-height: 1.7;
+  padding: 10px 20px 10px 10px;
+  /* background: rgba(255, 255, 255, 0.75); */
+ /* border: 1px solid rgba(0,0,0,0.08); */
+  border-radius: 4px;
+  color: #2F3B38;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .tutor-panel-message--assistant{
   background: transparent;
   border-radius: 7px;
   border: none;
-  padding: 10px 8px;
   align-self: flex-start;
   margin-top: 14px;
-  padding-top: 18px 20px;
-
 }
 
 .tutor-panel-message--guideAssistant{
   border: none;
-  background: rgba(15, 23, 42, 0.06);
-  border-radius: 7px;
-  padding: 10px 20px;
-  align-self: flex-start;
+  background: rgba(200,208,204,0.35); /* or transparent if you want none */
+  border-radius: 3px;
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
 }
 
+
+/*
+.tutor-panel-message--guideAssistant{
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+} */
+
 .guide-wrapper{
-  align-self: flex-start;
+  align-self: stretch;
+  width: 100%;
   display: flex;
   flex-direction: column;
 }
 
+.guide-wrapper.guide-slab{
+  background: #E3E9E6;
+  border-radius: 7px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.guide-list{
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.guide-item{
+  margin: 0 0 8px 0;
+  padding-left: 18px;
+  position: relative;
+}
+
+.guide-wrapper.guide-slab .guide-item::before{
+  content: "–";
+  font-size: 11px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #5D6A66;
+}
+
+.guide-item:last-child{
+  margin-bottom: 0;
+}
+
+.guide-wrapper.guide-slab .guide-item p{
+  margin: 0 0 8px 0;
+}
+
+.guide-wrapper.guide-slab .guide-item:last-child p:last-child{
+  margin-bottom: 10px;
+}
+
+
+/*
+.guide-wrapper{
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+} */
+
 /* Border + GAP live here */
 .guide-wrapper.guide-start{
-  border-top: 2px solid rgba(0,0,0,0.45);
+  border-top: 1px solid #C1C9C5;
   margin-top: 14px;
   padding-top: 14px;
 }
 
+/*
 .guide-wrapper.guide-end{
-  border-bottom: 2px solid rgba(0,0,0,0.45);
+  /* border-bottom: 1px solid rgba(0,0,0,0.08); */
   margin-bottom: 14px;
   padding-bottom: 14px;
-}
+} */
 
 .tutor-panel-message--checkAssistant{
   border: none;
-  background: rgba(15, 23, 42, 0.06);
+  /* background: rgba(15, 23, 42, 0.06); */
+  /* background: rgba(0, 0, 0, 0.04); */
+  background: transparent;
   border-radius: 7px;
-  padding: 10px 20px;
   align-self: flex-start;
 }
+
 .check-wrapper{
   align-self: flex-start;
   display: flex;
@@ -522,24 +673,42 @@ function createFloatingWidget() {
 }
 
 .check-wrapper.check-start{
-  border-top: 2px solid rgba(0,0,0,0.45);
+  border-top: 1px solid #C1C9C5;
   margin-top: 14px;
   padding-top: 14px;
 }
 
+/*
 .check-wrapper.check-end{
-  border-bottom: 2px solid rgba(0,0,0,0.45);
+  /* border-bottom: 1px solid rgba(0,0,0,0.08); */
   margin-bottom: 14px;
   padding-bottom: 14px;
+} */
+
+/* START separators */
+.guide-wrapper.guide-start,
+.check-wrapper.check-start{
+  margin-top: 12px;
+  padding-top: 12px;
 }
+
+/* END separators — tighter */
+.guide-wrapper.guide-end,
+.check-wrapper.check-end{
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+}
+
+
 .tutor-panel-message--checkAssistant{
-  background: rgba(0, 0, 0, 0.06); /* a bit warmer/neutral */
+  /* background: rgba(0, 0, 0, 0.06); */ /* a bit warmer/neutral */
+ /* background: rgba(0, 0, 0, 0.04); */
 }
 
 
 .tutor-panel-loading{
   font-size: 13px;
-  color: rgba(0,0,0,0.6);
+  color: #5D6A66;
   padding: 6px 12px;
   align-self: flex-start;
 }
@@ -547,13 +716,20 @@ function createFloatingWidget() {
 
 .tutor-panel-message--user{
   align-self: flex-end;
+  padding: 10px 10px;
   max-width: 75%;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.85);
+  background: #D6DDD9;
 }
 
 .tutor-panel-message p{
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
+}
+.tutor-panel-message h1,
+.tutor-panel-message h2,
+.tutor-panel-message h3{
+  font-size: 1em;
+  margin: 0 0 10px 0;
 }
 .tutor-panel-message p:last-child{
   margin-bottom: 0;
@@ -568,16 +744,22 @@ function createFloatingWidget() {
 }
 .tutor-panel-message code{
   font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", "Menlo", monospace;
-  background: rgba(0,0,0,0.06);
+  background: rgba(200,208,204,0.5);
   padding: 1px 4px;
+  font-size: 12px;
   border-radius: 4px;
 }
+.tutor-panel-message strong{
+  font-weight: 800;
+}
 .tutor-panel-message pre{
-  background: rgba(15, 23, 42, 0.06);
+  background: rgba(200,208,204,0.5);
   padding: 10px 12px;
   border-radius: 8px;
   overflow: auto;
   white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .tutor-panel-message pre code{
   background: transparent;
@@ -589,75 +771,85 @@ function createFloatingWidget() {
 /* Input bar pinned at bottom */
 .tutor-panel-inputbar{
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 
-  padding: 10px;
+  padding: 6px 18px;
 
-  background: rgba(228, 235, 192, 0.92);
-  border-top: 1px solid rgba(0,0,0,0.10);
+  background: transparent;
+  border-top: none;
 }
 
 /* Textarea */
 .tutor-panel-prompt{
   flex: 1;
-  min-height: 44px;
-  max-height: 110px;
+  min-height: 32px;
+  height: 32px;
+  max-height: 90px;
   resize: none;
-
-  padding: 10px 12px;
+  padding-top: 9px;
+  padding-right: 10px;
+  padding-bottom: 4px;
+  padding-left: 10px;
+  box-sizing: border-box;
 
   border-radius: 4px;
-  border: 1px solid rgba(0,0,0,0.14);
   outline: none;
 
-  background: rgba(255, 255, 255, 0.92);
-  font-size: 14px;
-  line-height: 1;
-}
-.tutor-panel-prompt:focus{
-  border-color: rgba(0,0,0,0.22);
-  box-shadow: 0 0 0 3px rgba(146, 229, 83, 0.25);
+  background: rgba(200,208,204,0.35);
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 /* Send */
 .tutor-panel-send{
-  border: 1px solid rgba(0,0,0,0.12);
-  background: rgba(4, 5, 4, 0.92);
-  color: rgba(255, 255, 255, 0.85);
+  border: none;
+  background: #000000;
+  /* background: rgba(37, 35, 35, 0.9); */
+  color: rgba(255, 255, 255, 0.95);
 
   border-radius: 4px;
-  padding: 10px 14px;
+  height: 32px;
+  padding: 0 14px;
 
   font-weight: 800;
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
   white-space: nowrap;
 }
-.tutor-panel-send:hover{
-  transform: translateY(-1px);
-  filter: brightness(0.98);
+
+
+/* Align all text sizes to Enter button */
+.tutor-panel *{
+  font-size: inherit;
 }
-.tutor-panel-send:active{
-  transform: translateY(0px);
-}`;
+
+`;
   document.head.appendChild(style);
   document.body.appendChild(widget);
 
-  // Setup image loading event listeners
-  const logoImage = document.getElementById("logo-image") as HTMLImageElement;
-  //const addImage = document.getElementById("add-image") as HTMLImageElement;
-
-  if (logoImage) {
-    logoImage.addEventListener("load", () => {
-      console.log("✅ image loaded successfully");
-    });
-    logoImage.addEventListener("error", () => {
-      console.error("❌ Failed to load logo image:", logo);
-      logoImage.style.display = "none";
-    });
-  }
   setupWidgetEvents();
+}
+
+function prettifyLlMResponse(text: string) {
+  // Convert "To fix: a; b; c." into bullets
+  const m = text.match(/([\s\S]*?)\bTo fix:\s*([\s\S]*)/i);
+  if (!m) return text;
+
+  const before = m[1].trim();
+  const fixesRaw = m[2].trim();
+
+  // split on semicolons
+  const fixes = fixesRaw
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (fixes.length === 0) return text;
+
+  const bulletBlock = fixes.map((f) => `- ${f.replace(/\.$/, "")}`).join("\n");
+
+  return `${before}\n\n**To fix**\n${bulletBlock}`;
 }
 
 function setupWidgetEvents() {
@@ -882,6 +1074,166 @@ function getProblemNumberFromTitle(title: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+function isStrongPassword(password: string): boolean {
+  if (password.length < 8) return false;
+  if (/\s/.test(password)) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  if (!/[^A-Za-z0-9]/.test(password)) return false;
+  return true;
+}
+
+const CANONICAL_TOPICS = [
+  "Array",
+  "String",
+  "Hash Table",
+  "Math",
+  "Dynamic Programming",
+  "Sorting",
+  "Greedy",
+  "Depth-First Search",
+  "Binary Search",
+  "Database",
+  "Matrix",
+  "Bit Manipulation",
+  "Tree",
+  "Breadth-First Search",
+  "Two Pointers",
+  "Prefix Sum",
+  "Heap (Priority Queue)",
+  "Simulation",
+  "Counting",
+  "Graph Theory",
+  "Binary Tree",
+  "Stack",
+  "Sliding Window",
+  "Enumeration",
+  "Design",
+  "Backtracking",
+  "Union-Find",
+  "Number Theory",
+  "Linked List",
+  "Ordered Set",
+  "Segment Tree",
+  "Monotonic Stack",
+  "Trie",
+  "Divide and Conquer",
+  "Combinatorics",
+  "Bitmask",
+  "Recursion",
+  "Queue",
+  "Geometry",
+  "Binary Indexed Tree",
+  "Memoization",
+  "Hash Function",
+  "Binary Search Tree",
+  "Shortest Path",
+  "String Matching",
+  "Topological Sort",
+  "Rolling Hash",
+  "Game Theory",
+  "Interactive",
+  "Data Stream",
+  "Monotonic Queue",
+  "Brainteaser",
+  "Doubly-Linked List",
+  "Merge Sort",
+  "Randomized",
+  "Counting Sort",
+  "Iterator",
+  "Concurrency",
+  "Quickselect",
+  "Suffix Array",
+  "Sweep Line",
+  "Minimum Spanning Tree",
+  "Bucket Sort",
+  "Shell",
+  "Reservoir Sampling",
+  "Radix Sort",
+  "Rejection Sampling",
+];
+
+const TOPIC_REPLACEMENTS: Record<string, string> = {
+  "Dynamic Programming": "DP",
+  "Depth-First Search": "DFS",
+  "Breadth-First Search": "BFS",
+  "Heap (Priority Queue)": "Heaps (PQ)",
+  "Binary Indexed Tree": "Binary Trees",
+  "Binary Search Tree": "BST",
+  "Doubly-Linked List": "DLL",
+  "Minimum Spanning Tree": "MST",
+};
+
+function normalizeTopicKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[_/]+/g, " ")
+    .replace(/-/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const CANONICAL_TOPIC_MAP = new Map(
+  CANONICAL_TOPICS.map((topic) => [
+    normalizeTopicKey(topic),
+    TOPIC_REPLACEMENTS[topic] ?? topic,
+  ]),
+);
+Object.values(TOPIC_REPLACEMENTS).forEach((replacement) => {
+  CANONICAL_TOPIC_MAP.set(normalizeTopicKey(replacement), replacement);
+});
+
+function titleCaseTopic(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function resolveTopicLabel(raw: string): string {
+  const key = normalizeTopicKey(raw);
+  if (!key) return raw.trim();
+  const direct = CANONICAL_TOPIC_MAP.get(key);
+  if (direct) return direct;
+
+  const parts = key.split(" ");
+  if (parts.length > 0) {
+    const last = parts[parts.length - 1];
+    if (last.endsWith("s")) {
+      parts[parts.length - 1] = last.slice(0, -1);
+      const singularKey = parts.join(" ");
+      const match = CANONICAL_TOPIC_MAP.get(singularKey);
+      if (match) return match;
+    } else {
+      parts[parts.length - 1] = `${last}s`;
+      const pluralKey = parts.join(" ");
+      const match = CANONICAL_TOPIC_MAP.get(pluralKey);
+      if (match) return match;
+    }
+  }
+
+  return titleCaseTopic(key);
+}
+
+function ensureTopicBucket(session: TutorSession, topic: string): string {
+  const normalized = resolveTopicLabel(topic);
+  const existingKey = Object.keys(session.topics).find(
+    (key) => resolveTopicLabel(key) === normalized,
+  );
+  if (existingKey && existingKey !== normalized) {
+    session.topics[normalized] = session.topics[existingKey];
+    delete session.topics[existingKey];
+  }
+  session.topics[normalized] ??= {
+    thoughts_to_remember: [],
+    pitfalls: [],
+  };
+  return normalized;
+}
+
 function getSessionStorageKey(userId: string, problemName: string): string {
   return `${SESSION_STORAGE_KEY}:${encodeURIComponent(
     userId,
@@ -896,9 +1248,8 @@ function getRollingTopicsFromPage(): Record<
   const topicsList = Array.from(topicElements)
     .map((el) => el.getAttribute("href"))
     .filter((href): href is string => !!href)
-    .map((href) =>
-      href.replace("/tag/", "").replace("/", "").replace("-", "_"),
-    );
+    .map((href) => href.replace("/tag/", "").replace("/", ""))
+    .map((slug) => resolveTopicLabel(slug));
 
   return Object.fromEntries(
     Array.from(new Set(topicsList)).map((t) => [
@@ -906,6 +1257,66 @@ function getRollingTopicsFromPage(): Record<
       { thoughts_to_remember: [], pitfalls: [] },
     ]),
   );
+}
+
+function getEditorLanguageFromPage(): string {
+  const editor = document.querySelector("#editor");
+  if (!editor) return "";
+
+  const button = editor.querySelector('button[aria-haspopup="dialog"]');
+  if (!button) return "";
+
+  const textNode = Array.from(button.childNodes).find(
+    (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
+  );
+  return textNode?.textContent?.trim() ?? button.textContent?.trim() ?? "";
+}
+
+const LANGUAGE_BUTTON_SELECTOR = '#editor button[aria-haspopup="dialog"]';
+let languageObserver: MutationObserver | null = null;
+let languageObserverTarget: HTMLElement | null = null;
+
+function syncSessionLanguageFromPage() {
+  if (!currentTutorSession) return;
+  const language = getEditorLanguageFromPage();
+  if (!language) return;
+  if (currentTutorSession.language === language) return;
+  currentTutorSession.language = language;
+  scheduleSessionPersist(currentTutorSession.element ?? null);
+}
+
+function ensureLanguageObserver() {
+  const button = document.querySelector<HTMLElement>(LANGUAGE_BUTTON_SELECTOR);
+  if (!button) return;
+
+  if (!button.dataset.tutorLangListener) {
+    button.dataset.tutorLangListener = "true";
+    button.addEventListener(
+      "click",
+      () => {
+        window.setTimeout(syncSessionLanguageFromPage, 50);
+      },
+      { passive: true },
+    );
+  }
+
+  if (languageObserverTarget === button && languageObserver) {
+    syncSessionLanguageFromPage();
+    return;
+  }
+
+  languageObserver?.disconnect();
+  languageObserverTarget = button;
+  languageObserver = new MutationObserver(() => {
+    syncSessionLanguageFromPage();
+  });
+  languageObserver.observe(button, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+
+  syncSessionLanguageFromPage();
 }
 
 function buildFreshSession(
@@ -921,14 +1332,15 @@ function buildFreshSession(
     userId,
     problem: title,
     problemUrl: getCanonicalProblemUrl(window.location.href),
+    language: getEditorLanguageFromPage(),
     topics: getRollingTopicsFromPage(),
+    sessionTopicsInitialized: false,
     content: [],
     prompt: "",
     position: null,
     size: null,
     guideModeEnabled: false,
     checkModeEnabled: false,
-    timerEnabled: false,
     rollingStateGuideMode: {
       problem: title,
       nudges: [],
@@ -943,15 +1355,33 @@ function buildFreshSession(
 }
 
 async function openTutorPanel() {
+  const auth = await loadAuthFromStorage();
+  const authExpired = isAuthExpired(auth);
+  const authUserId = auth?.userId ?? "";
+  if (authExpired) {
+    await clearAuthFromStorage();
+  }
+
   if (
     currentTutorSession &&
     currentTutorSession.element &&
     document.body.contains(currentTutorSession.element)
   ) {
+    ensureLanguageObserver();
+    syncSessionLanguageFromPage();
     showTutorPanel(currentTutorSession.element);
     hideWidget();
     isWindowOpen = true;
     highlightExistingPanel(currentTutorSession.element);
+    if (!authUserId || authExpired) {
+      lockPanel(currentTutorSession.element);
+      ensureAuthPrompt(
+        currentTutorSession.element,
+        authExpired ? "session expired, please log back in" : undefined,
+      );
+    } else {
+      void initSessionTopicsIfNeeded(currentTutorSession);
+    }
     markUserActivity();
     scheduleSessionPersist(currentTutorSession.element);
     return;
@@ -969,13 +1399,12 @@ async function openTutorPanel() {
   }
 
   if (!pendingStoredSession) {
-    const auth = await loadAuthFromStorage();
-    if (auth?.userId) {
+    if (authUserId) {
       const stored = await loadSessionState(
-        auth.userId,
+        authUserId,
         getProblemTitleFromPage(),
       );
-      if (stored && isStoredSessionForUser(stored, auth.userId)) {
+      if (stored && isStoredSessionForUser(stored, authUserId)) {
         pendingStoredSession = stored;
       }
     }
@@ -985,13 +1414,20 @@ async function openTutorPanel() {
     const tutorPanel = createTutorPanel();
     applyStoredSessionToPanel(tutorPanel, pendingStoredSession);
     pendingStoredSession = null;
+    ensureLanguageObserver();
+    syncSessionLanguageFromPage();
     showTutorPanel(tutorPanel);
     hideWidget();
     isWindowOpen = true;
     markUserActivity();
-    if (!currentTutorSession?.userId) {
+    if (!authUserId || authExpired) {
       lockPanel(tutorPanel); // #lockpanel
-      ensureAuthPrompt(tutorPanel);
+      ensureAuthPrompt(
+        tutorPanel,
+        authExpired ? "session expired, please log back in" : undefined,
+      );
+    } else if (currentTutorSession) {
+      void initSessionTopicsIfNeeded(currentTutorSession);
     }
     scheduleSessionPersist(tutorPanel);
     return;
@@ -1002,21 +1438,24 @@ async function openTutorPanel() {
     console.log("There was an error creating a panel");
     return;
   }
-  currentTutorSession = buildFreshSession(tutorPanel, "");
+  currentTutorSession = buildFreshSession(tutorPanel, authUserId);
+  ensureLanguageObserver();
   showTutorPanel(tutorPanel);
   hideWidget();
   isWindowOpen = true;
   markUserActivity();
   scheduleSessionPersist(tutorPanel);
-  void loadAuthFromStorage().then((auth) => {
-    if (!currentTutorSession) return;
-    if (auth?.userId) {
-      currentTutorSession.userId = auth.userId;
-      return;
-    }
+  if (!currentTutorSession) return;
+  if (!authUserId || authExpired) {
     lockPanel(tutorPanel);
-    ensureAuthPrompt(tutorPanel);
-  });
+    ensureAuthPrompt(
+      tutorPanel,
+      authExpired ? "session expired, please log back in" : undefined,
+    );
+  } else {
+    currentTutorSession.userId = authUserId;
+    void initSessionTopicsIfNeeded(currentTutorSession);
+  }
   // lockPanel
   // Auto-focus the textarea when created via shortcut
   setTimeout(() => {
@@ -1052,10 +1491,17 @@ async function requestHistorySummary(history: SessionRollingHistoryLLM) {
         summary: history.summary,
       },
     });
-    if (typeof response === "string") {
-      history.summary = response;
-      //console.log("This is the summary: ", history.summary);
-      //console.log("This is the toSummarize: ", history.toSummarize);
+    if (
+      handleBackendError(currentTutorSession?.element ?? null, response, {
+        silent: true,
+      })
+    ) {
+      return;
+    }
+    const reply =
+      typeof response === "string" ? response : (response as any)?.reply;
+    if (typeof reply === "string") {
+      history.summary = reply;
     }
   } finally {
     summarizeInFlight = false;
@@ -1082,27 +1528,53 @@ type TutorSession = {
   content: string[];
   problem: string;
   problemUrl: string;
+  language: string;
   topics: Record<
     string,
     { thoughts_to_remember: string[]; pitfalls: string[] }
   >;
+  sessionTopicsInitialized: boolean;
   prompt: string;
   position: PanelPosition | null;
   size: PanelSize | null;
   guideModeEnabled: boolean;
   checkModeEnabled: boolean;
-  timerEnabled: boolean;
   rollingStateGuideMode: RollingStateGuideMode;
   sessionRollingHistory: SessionRollingHistoryLLM;
 };
 
 let currentTutorSession: TutorSession | null = null;
 
-type StoredAuth = { userId: string; jwt: string };
+async function initSessionTopicsIfNeeded(session: TutorSession) {
+  if (session.sessionTopicsInitialized) return;
+  if (!session.userId) return;
+  const resp = await browser.runtime.sendMessage({
+    action: "init-session-topics",
+    payload: {
+      sessionId: session.sessionId,
+      topics: session.topics,
+    },
+  });
+  if (resp?.success) {
+    session.sessionTopicsInitialized = true;
+    scheduleSessionPersist(session.element ?? null);
+  }
+}
+
+type StoredAuth = {
+  userId: string;
+  jwt: string;
+  accessToken?: string;
+  issuedAt?: number;
+  expiresAt?: number;
+};
 const AUTH_STORAGE_KEY = "vibetutor-auth";
 const SESSION_STORAGE_KEY = "vibetutor-session";
-const INACTIVITY_MS = 1 * 60 * 1000; // 57,600,000
-// const INACTIVITY_MS = 16 * 60 * 60 * 1000; // 57,600,000
+const WORKSPACE_URL = "http://localhost:3000/auth/bridge";
+
+// const WORKSPACE_URL = ""; // TODO: paste workspace auth-bridge URL here
+//const INACTIVITY_MS = 1 * 60 * 1000; // 57,600,000
+const INACTIVITY_MS = 16 * 60 * 60 * 1000; // 57,600,000
 const ACTIVITY_PERSIST_INTERVAL_MS = 15000;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
@@ -1128,6 +1600,11 @@ let cleanupTimerId: number | null = null;
 async function loadAuthFromStorage() {
   const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
   return (stored[AUTH_STORAGE_KEY] as StoredAuth | undefined) ?? null;
+}
+
+function isAuthExpired(auth: StoredAuth | null) {
+  if (!auth?.expiresAt) return false;
+  return Date.now() > auth.expiresAt;
 }
 
 async function clearAuthFromStorage() {
@@ -1156,6 +1633,8 @@ async function saveSessionState(
       sessionId: currentTutorSession.sessionId,
       userId: currentTutorSession.userId,
       content: currentTutorSession.content,
+      sessionTopicsInitialized: currentTutorSession.sessionTopicsInitialized,
+      language: currentTutorSession.language,
       problem: currentTutorSession.problem,
       problemUrl: currentTutorSession.problemUrl,
       topics: currentTutorSession.topics,
@@ -1164,7 +1643,6 @@ async function saveSessionState(
       size: currentTutorSession.size,
       guideModeEnabled: currentTutorSession.guideModeEnabled,
       checkModeEnabled: currentTutorSession.checkModeEnabled,
-      timerEnabled: currentTutorSession.timerEnabled,
       rollingStateGuideMode: currentTutorSession.rollingStateGuideMode,
       sessionRollingHistory: currentTutorSession.sessionRollingHistory,
     },
@@ -1253,6 +1731,15 @@ function applyStoredSessionToPanel(
   stored: StoredTutorSession,
 ) {
   currentTutorSession = { ...stored.state, element: panel };
+  if (currentTutorSession && !currentTutorSession.language) {
+    currentTutorSession.language = getEditorLanguageFromPage();
+  }
+  if (
+    currentTutorSession &&
+    currentTutorSession.sessionTopicsInitialized == null
+  ) {
+    currentTutorSession.sessionTopicsInitialized = false;
+  }
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (contentArea) {
     contentArea.innerHTML = stored.contentHtml || "";
@@ -1271,12 +1758,24 @@ function applyStoredSessionToPanel(
     panel.style.width = `${currentTutorSession.size.width}px`;
     panel.style.height = `${currentTutorSession.size.height}px`;
   }
-  const guideWrappers = panel.querySelectorAll(".guide-wrapper");
-  guideMessageCount = guideWrappers.length;
-  lastGuideMessageEl =
-    guideWrappers.length > 0
-      ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
-      : null;
+  const guideSlabs = panel.querySelectorAll<HTMLElement>(
+    ".guide-wrapper.guide-slab",
+  );
+  if (guideSlabs.length > 0) {
+    const guideSlab = guideSlabs[guideSlabs.length - 1];
+    const items = guideSlab.querySelectorAll(".guide-item");
+    guideMessageCount = items.length;
+    lastGuideMessageEl = guideSlab;
+    guideActiveSlab = currentTutorSession?.guideModeEnabled ? guideSlab : null;
+  } else {
+    const guideWrappers = panel.querySelectorAll(".guide-wrapper");
+    guideMessageCount = guideWrappers.length;
+    lastGuideMessageEl =
+      guideWrappers.length > 0
+        ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
+        : null;
+    guideActiveSlab = null;
+  }
 }
 
 function resetPanelForUser(
@@ -1296,6 +1795,9 @@ function resetPanelForUser(
     prompt.value = "";
   }
   currentTutorSession = buildFreshSession(panel, userId, problemName);
+  if (currentTutorSession) {
+    void initSessionTopicsIfNeeded(currentTutorSession);
+  }
 }
 
 async function hydrateStoredSessionCache() {
@@ -1341,7 +1843,7 @@ async function logoutForInactivity() {
     detachGuideListeners();
     panel.classList.remove("guidemode-active", "checkmode-active");
     lockPanel(panel);
-    ensureAuthPrompt(panel);
+    ensureAuthPrompt(panel, "session expired, please log back in");
   }
 }
 
@@ -1377,6 +1879,24 @@ function resetGuideState() {
   lastGuideFlushAt = 0;
   guideMessageCount = 0;
   lastGuideMessageEl = null;
+  guideActiveSlab = null;
+}
+
+function stopPanelOperations(panel: HTMLElement) {
+  queue = [];
+  flushInFlight = false;
+  resetGuideState();
+  detachGuideListeners();
+  panel.querySelectorAll(".tutor-panel-assistant-loading").forEach((el) => {
+    el.remove();
+  });
+  if (currentTutorSession) {
+    currentTutorSession.guideModeEnabled = false;
+    currentTutorSession.checkModeEnabled = false;
+  }
+  panel.classList.remove("guidemode-active", "checkmode-active");
+  panel.querySelector(".btn-guide-mode")?.classList.remove("is-loading");
+  panel.querySelector(".btn-help-mode")?.classList.remove("is-loading");
 }
 
 function lockPanel(panel: HTMLElement) {
@@ -1387,6 +1907,99 @@ function lockPanel(panel: HTMLElement) {
 function unlockPanel(panel: HTMLElement) {
   panel.classList.remove("tutor-panel-locked");
   setPanelControlsDisabled(panel, false);
+}
+
+type BackendErrorResponse = {
+  success: false;
+  error?: string;
+  status?: number;
+  timeout?: boolean;
+  unauthorized?: boolean;
+};
+
+const SESSION_EXPIRED_MESSAGE = "session expired, please log back in";
+
+function isBackendErrorResponse(value: unknown): value is BackendErrorResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { success?: unknown }).success === false
+  );
+}
+
+function removeSessionExpiredMessage(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return;
+  const messages = contentArea.querySelectorAll<HTMLElement>(
+    ".tutor-panel-message--assistant",
+  );
+  messages.forEach((message) => {
+    if (message.textContent?.trim() === SESSION_EXPIRED_MESSAGE) {
+      message.remove();
+    }
+  });
+}
+
+function appendSystemMessage(panel: HTMLElement, message: string) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return;
+  const messageEl = appendPanelMessage(panel, message, "assistant");
+  if (!messageEl) return;
+  contentArea.scrollTop = messageEl.offsetTop;
+  scheduleSessionPersist(panel);
+}
+
+function handleBackendError(
+  panel: HTMLElement | null,
+  response: unknown,
+  options?: {
+    timeoutMessage?: string;
+    serverMessage?: string;
+    lockOnServerError?: boolean;
+    silent?: boolean;
+  },
+) {
+  if (!isBackendErrorResponse(response)) return false;
+  if (options?.silent) return true;
+  const target = panel ?? currentTutorSession?.element ?? null;
+  if (!target) return true;
+
+  if (
+    response.unauthorized ||
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.error && /unauthorized/i.test(response.error))
+  ) {
+    lockPanel(target);
+    ensureAuthPrompt(target, SESSION_EXPIRED_MESSAGE);
+    if (!isWindowOpen) {
+      showTutorPanel(target);
+      hideWidget();
+      isWindowOpen = true;
+      markUserActivity();
+      scheduleSessionPersist(target);
+    }
+    removeSessionExpiredMessage(target);
+    return true;
+  }
+
+  if (response.timeout) {
+    appendSystemMessage(
+      target,
+      options?.timeoutMessage ??
+        "The model is taking longer than usual. Please try again.",
+    );
+    return true;
+  }
+
+  const serverMessage =
+    options?.serverMessage ??
+    "Internal server error. Please try again in a moment.";
+  if (options?.lockOnServerError === true) {
+    lockPanel(target);
+  }
+  appendSystemMessage(target, serverMessage);
+  return true;
 }
 
 function showPanelLoading() {
@@ -1434,67 +2047,263 @@ function startProblemUrlWatcher() {
   }, 1000);
 }
 
-function ensureAuthPrompt(panel: HTMLElement) {
-  if (panel.querySelector(".tutor-panel-auth")) return;
+function ensureAuthPrompt(panel: HTMLElement, message?: string) {
+  const existing = panel.querySelector<HTMLElement>(".tutor-panel-auth");
+  if (existing) {
+    if (message) {
+      const errorBox = existing.querySelector<HTMLElement>(".auth-error");
+      if (errorBox) {
+        errorBox.textContent = message;
+        errorBox.style.display = "block";
+      }
+    }
+    return;
+  }
+  suspendPanelOps = true;
+  stopPanelOperations(panel);
 
   const authBox = document.createElement("div");
   authBox.className = "tutor-panel-auth";
-  authBox.innerHTML = `
-    <h4>Login Required</h4>
-    <input type="email" class="auth-email" placeholder="you@example.com" />
-    <input type="password" class="auth-password" placeholder="password" />
-    <button type="button" class="auth-login">Login</button>
-  `;
   panel.appendChild(authBox);
 
-  const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
-  const passwordInput =
-    authBox.querySelector<HTMLInputElement>(".auth-password");
-  const login = authBox.querySelector<HTMLButtonElement>(".auth-login");
-  login?.addEventListener("click", async () => {
-    const email = emailInput?.value.trim() ?? "";
-    const password = passwordInput?.value.trim() ?? "";
-    if (!email || !password) return;
-    const resp = await browser.runtime.sendMessage({
-      action: "supabase-login",
-      payload: { email, password },
+  const setupPasswordToggle = (
+    input: HTMLInputElement | null,
+    toggle: HTMLButtonElement | null,
+  ) => {
+    if (!input || !toggle) return;
+    const update = () => {
+      const hidden = input.type === "password";
+      toggle.setAttribute(
+        "aria-label",
+        hidden ? "Show password" : "Hide password",
+      );
+    };
+    toggle.addEventListener("click", () => {
+      input.type = input.type === "password" ? "text" : "password";
+      update();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
     });
-    if (resp?.userId && resp?.jwt) {
-      const currentUserId = currentTutorSession?.userId ?? "";
-      const problemName =
-        currentTutorSession?.problem ?? getProblemTitleFromPage();
+    update();
+  };
 
-      if (currentUserId && currentUserId === resp.userId) {
-        sessionRestorePending = false;
-        unlockPanel(panel);
-        authBox.remove();
-        scheduleSessionPersist(panel);
-        return;
-      }
+  const applyAuthSuccess = async (userId: string) => {
+    const currentUserId = currentTutorSession?.userId ?? "";
+    const problemName =
+      currentTutorSession?.problem ?? getProblemTitleFromPage();
+    suspendPanelOps = false;
 
-      if (currentUserId && currentUserId !== resp.userId) {
-        await saveSessionState(panel, { force: true });
-        resetPanelForUser(panel, resp.userId, problemName);
-      }
-
-      const stored = await loadSessionState(resp.userId, problemName);
-      if (stored && isStoredSessionForUser(stored, resp.userId)) {
-        applyStoredSessionToPanel(panel, stored);
-        await clearSessionState(resp.userId, stored.state.problem);
-        pendingStoredSession = null;
-      } else if (stored) {
-        await clearSessionState(resp.userId, stored.state.problem);
-      }
-
-      if (currentTutorSession) {
-        currentTutorSession.userId = resp.userId;
-      }
+    if (currentUserId && currentUserId === userId) {
       sessionRestorePending = false;
       unlockPanel(panel);
       authBox.remove();
       scheduleSessionPersist(panel);
+      return;
     }
-  });
+
+    if (currentUserId && currentUserId !== userId) {
+      await saveSessionState(panel, { force: true });
+      resetPanelForUser(panel, userId, problemName);
+    }
+
+    const stored = await loadSessionState(userId, problemName);
+    if (stored && isStoredSessionForUser(stored, userId)) {
+      applyStoredSessionToPanel(panel, stored);
+      await clearSessionState(userId, stored.state.problem);
+      pendingStoredSession = null;
+    } else if (stored) {
+      await clearSessionState(userId, stored.state.problem);
+    }
+
+    if (currentTutorSession) {
+      currentTutorSession.userId = userId;
+      void initSessionTopicsIfNeeded(currentTutorSession);
+    }
+    sessionRestorePending = false;
+    unlockPanel(panel);
+    authBox.remove();
+    scheduleSessionPersist(panel);
+  };
+
+  const renderLoginBox = (message?: string) => {
+    authBox.innerHTML = `
+      <div class="auth-error"></div>
+      <h4>Login Required</h4>
+      <input type="email" class="auth-email" placeholder="you@example.com" />
+      <div class="auth-password-wrap">
+        <input type="password" class="auth-password" placeholder="password" />
+        <button type="button" class="auth-password-toggle" aria-label="Show password">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">
+            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"></path>
+            <circle cx="12" cy="12" r="3.5"></circle>
+          </svg>
+        </button>
+      </div>
+      <div class="auth-actions">
+        <button type="button" class="auth-login">Login</button>
+        <span class="auth-sep">/</span>
+        <button type="button" class="auth-signup">Sign up</button>
+      </div>
+    `;
+
+    const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
+    const passwordInput =
+      authBox.querySelector<HTMLInputElement>(".auth-password");
+    const login = authBox.querySelector<HTMLButtonElement>(".auth-login");
+    const signup = authBox.querySelector<HTMLButtonElement>(".auth-signup");
+    const toggle = authBox.querySelector<HTMLButtonElement>(
+      ".auth-password-toggle",
+    );
+    const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
+    if (message && errorBox) {
+      errorBox.textContent = message;
+      errorBox.style.display = "block";
+    }
+    const clearError = () => {
+      if (!errorBox) return;
+      errorBox.style.display = "none";
+    };
+    emailInput?.addEventListener("input", clearError);
+    passwordInput?.addEventListener("input", clearError);
+    setupPasswordToggle(passwordInput, toggle);
+    login?.addEventListener("click", async () => {
+      const email = emailInput?.value.trim() ?? "";
+      const password = passwordInput?.value.trim() ?? "";
+      if (!email || !password) return;
+      const resp = await browser.runtime.sendMessage({
+        action: "supabase-login",
+        payload: { email, password },
+      });
+      if (resp?.success === false) {
+        if (errorBox) {
+          errorBox.textContent = resp.error || "Internal server error";
+          errorBox.style.display = "block";
+        }
+        return;
+      }
+      if (resp?.userId && resp?.jwt) {
+        await applyAuthSuccess(resp.userId);
+      } else if (errorBox) {
+        errorBox.textContent = "Invalid creds";
+        errorBox.style.display = "block";
+      }
+    });
+    signup?.addEventListener("click", () => {
+      renderSignupBox();
+    });
+  };
+
+  const renderSignupBox = () => {
+    authBox.innerHTML = `
+      <div class="auth-error">Signup failed</div>
+      <h4>Create account</h4>
+      <div class="auth-name-row">
+        <input type="text" class="auth-first-name" placeholder="First name" />
+        <input type="text" class="auth-last-name" placeholder="Last name" />
+      </div>
+      <input type="email" class="auth-email" placeholder="you@example.com" />
+      <div class="auth-password-wrap">
+        <input type="password" class="auth-password" placeholder="password" />
+        <button type="button" class="auth-password-toggle" aria-label="Show password">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">
+            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"></path>
+            <circle cx="12" cy="12" r="3.5"></circle>
+          </svg>
+        </button>
+      </div>
+      <div class="auth-password-hint"></div>
+      <div class="auth-actions">
+        <button type="button" class="auth-signup-submit">Sign up</button>
+        <span class="auth-sep">/</span>
+        <button type="button" class="auth-back">Back to login</button>
+      </div>
+    `;
+    const firstNameInput =
+      authBox.querySelector<HTMLInputElement>(".auth-first-name");
+    const lastNameInput =
+      authBox.querySelector<HTMLInputElement>(".auth-last-name");
+    const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
+    const passwordInput =
+      authBox.querySelector<HTMLInputElement>(".auth-password");
+    const signupSubmit = authBox.querySelector<HTMLButtonElement>(
+      ".auth-signup-submit",
+    );
+    const toggle = authBox.querySelector<HTMLButtonElement>(
+      ".auth-password-toggle",
+    );
+    const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
+    const passwordHint = authBox.querySelector<HTMLElement>(
+      ".auth-password-hint",
+    );
+    const clearError = () => {
+      if (!errorBox) return;
+      errorBox.style.display = "none";
+    };
+    firstNameInput?.addEventListener("input", clearError);
+    lastNameInput?.addEventListener("input", clearError);
+    emailInput?.addEventListener("input", clearError);
+    passwordInput?.addEventListener("input", clearError);
+    setupPasswordToggle(passwordInput, toggle);
+    passwordInput?.addEventListener("blur", () => {
+      if (!passwordHint || !passwordInput) return;
+      const value = passwordInput.value.trim();
+      if (value && !isStrongPassword(value)) {
+        passwordHint.textContent =
+          "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
+        passwordHint.style.display = "block";
+      } else {
+        passwordHint.style.display = "none";
+      }
+    });
+    passwordInput?.addEventListener("input", () => {
+      if (!passwordHint || !passwordInput) return;
+      const value = passwordInput.value.trim();
+      if (value && isStrongPassword(value)) {
+        passwordHint.style.display = "none";
+      }
+    });
+
+    signupSubmit?.addEventListener("click", async () => {
+      const fname = firstNameInput?.value.trim() ?? "";
+      const lname = lastNameInput?.value.trim() ?? "";
+      const email = emailInput?.value.trim() ?? "";
+      const password = passwordInput?.value.trim() ?? "";
+      if (!fname || !lname || !email || !password) return;
+      if (!isStrongPassword(password)) {
+        if (passwordHint) {
+          passwordHint.textContent =
+            "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
+          passwordHint.style.display = "block";
+        }
+        return;
+      }
+      const resp = await browser.runtime.sendMessage({
+        action: "supabase-signup",
+        payload: { fname, lname, email, password },
+      });
+      if (resp?.success === false) {
+        if (errorBox) {
+          errorBox.textContent = resp.error || "Internal server error";
+          errorBox.style.display = "block";
+        }
+        return;
+      }
+      if (resp?.requiresVerification) {
+        renderLoginBox("Waiting for verification, check email");
+      } else if (resp?.userId && resp?.jwt) {
+        await applyAuthSuccess(resp.userId);
+      } else if (errorBox) {
+        errorBox.style.display = "block";
+      }
+    });
+
+    const back = authBox.querySelector<HTMLButtonElement>(".auth-back");
+    back?.addEventListener("click", () => {
+      renderLoginBox();
+    });
+  };
+
+  renderLoginBox(message);
 }
 
 type PanelPosition = { x: number; y: number };
@@ -1521,15 +2330,15 @@ function createTutorPanel() {
         <div class="tutor-panel-actions">
           <button class="btn-guide-mode">Guide me</button>
           <button class="btn-help-mode">Check mode</button>
-          <button class="btn-timer">Timer</button>
+          <button class="btn-gotToWorkspace">Notes made</button>
         </div>
       </div>
 
       <div class="tutor-panel-content"></div>
 
       <div class="tutor-panel-inputbar">
-        <textarea class="tutor-panel-prompt" placeholder="Ask anything"></textarea>
-        <button class="tutor-panel-send">Enter</button>
+        <textarea class="tutor-panel-prompt" placeholder="Ask anything..."></textarea>
+        <button class="tutor-panel-send">Send</button>
       </div>
     </div>
   `;
@@ -1544,18 +2353,13 @@ function createTutorPanel() {
 
   document.body.appendChild(panel);
 
-  // For now: position relative to widget (until you load saved position)
-  const widget = document.getElementById("tutor-widget");
-  if (widget) {
-    const rect = widget.getBoundingClientRect();
-    panel.style.left =
-      Math.max(20, Math.min(rect.left - 320, window.innerWidth - 340)) + "px";
-    panel.style.top =
-      Math.max(20, Math.min(rect.top, window.innerHeight - 220)) + "px";
-  } else {
-    panel.style.left = Math.max(20, (window.innerWidth - 300) / 2) + "px";
-    panel.style.top = Math.max(20, (window.innerHeight - 200) / 2) + "px";
-  }
+  // Default first-time position (bottom-left-ish), clamped to viewport
+  const defaultLeft = 40;
+  const defaultTop = Math.round(window.innerHeight * 0.38);
+  const maxLeft = window.innerWidth - panel.offsetWidth - 20;
+  const maxTop = window.innerHeight - panel.offsetHeight - 20;
+  panel.style.left = `${Math.max(20, Math.min(defaultLeft, maxLeft))}px`;
+  panel.style.top = `${Math.max(20, Math.min(defaultTop, maxTop))}px`;
 
   setTimeout(() => panel.classList.add("open"), 10);
 
@@ -1605,6 +2409,7 @@ let lastGuideFlushLine: number | null = null;
 let lastGuideFlushAt = 0;
 let guideMessageCount = 0;
 let lastGuideMessageEl: HTMLElement | null = null;
+let guideActiveSlab: HTMLElement | null = null;
 
 function guideMode() {}
 
@@ -1741,9 +2546,17 @@ function getLineByNumber(code: string, lineNumber: number) {
 
 async function drainGuideQueue() {
   if (guideDrainInFlight) return;
+  if (suspendPanelOps) {
+    queue = [];
+    return;
+  }
   guideDrainInFlight = true;
   try {
     while (queue.length > 0) {
+      if (suspendPanelOps) {
+        queue = [];
+        break;
+      }
       const [code, focusLine] = queue.shift()!;
       console.log("This is the focus line: ", focusLine); // this is not the one, get the correct focus line
       console.log("the code so far: ", code);
@@ -1757,9 +2570,20 @@ async function drainGuideQueue() {
           topics: currentTutorSession?.topics,
           code,
           focusLine,
+          language:
+            currentTutorSession?.language ?? getEditorLanguageFromPage(),
           rollingStateGuideMode: currentTutorSession?.rollingStateGuideMode,
         },
       });
+      if (
+        handleBackendError(currentTutorSession?.element ?? null, resp, {
+          timeoutMessage:
+            "Guide mode is taking longer than usual. Please try again.",
+        })
+      ) {
+        flushInFlight = false;
+        continue;
+      }
       if (!resp) {
         console.log("failure for guide mode");
       } else {
@@ -1772,8 +2596,14 @@ async function drainGuideQueue() {
         const nudge = reply?.nudge;
 
         if (currentTutorSession && typeof nudge === "string") {
+          const trimmedNudge = nudge.trim();
+          if (trimmedNudge) {
+            currentTutorSession.rollingStateGuideMode.nudges.push(trimmedNudge);
+          }
           currentTutorSession.content.push(`${nudge}\n`);
           if (currentTutorSession.element != null) {
+            //const pretty = prettifyLlMResponse(nudge);
+
             await appendToContentPanel(
               //but is it good to call a await inside of an already async function?
               currentTutorSession.element,
@@ -1787,11 +2617,15 @@ async function drainGuideQueue() {
         }
 
         const topics = reply?.topics;
-        if (topics && typeof topics === "object") {
+        if (topics && typeof topics === "object" && currentTutorSession) {
           for (const [topic, raw] of Object.entries(
             topics as Record<string, unknown>,
           )) {
             if (!raw || typeof raw !== "object") continue;
+            const normalizedTopic = ensureTopicBucket(
+              currentTutorSession,
+              topic,
+            );
 
             const thoughts = (raw as { thoughts_to_remember?: unknown })
               .thoughts_to_remember;
@@ -1810,18 +2644,15 @@ async function drainGuideQueue() {
                 : [];
 
             if (!currentTutorSession) continue;
-            currentTutorSession.topics[topic] ??= {
-              thoughts_to_remember: [],
-              pitfalls: [],
-            };
-
             if (thoughtValues.length > 0) {
-              currentTutorSession.topics[topic].thoughts_to_remember.push(
-                ...thoughtValues,
-              );
+              currentTutorSession.topics[
+                normalizedTopic
+              ].thoughts_to_remember.push(...thoughtValues);
             }
             if (pitfallValues.length > 0) {
-              currentTutorSession.topics[topic].pitfalls.push(...pitfallValues);
+              currentTutorSession.topics[normalizedTopic].pitfalls.push(
+                ...pitfallValues,
+              );
             }
           }
         }
@@ -1919,8 +2750,23 @@ function detachGuideListeners() {
 
 function highlightAskArea() {}
 
+function showAssistantLoading(panel: HTMLElement) {
+  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (!contentArea) return null;
+  const wrapper = document.createElement("div");
+  wrapper.className = "tutor-panel-assistant-loading";
+  const dot = document.createElement("div");
+  dot.className = "tutor-panel-assistant-loading-dot";
+  wrapper.appendChild(dot);
+  contentArea.appendChild(wrapper);
+  contentArea.scrollTop = wrapper.offsetTop;
+  return wrapper;
+}
+
 async function askAnything(panel: HTMLElement, query: string) {
   //console.log("this is the query asked: ", query);
+  const loadingEl = showAssistantLoading(panel);
+  const language = currentTutorSession?.language || getEditorLanguageFromPage();
   const response = await browser.runtime.sendMessage({
     action: "ask-anything",
     payload: {
@@ -1929,28 +2775,53 @@ async function askAnything(panel: HTMLElement, query: string) {
       rollingHistory: currentTutorSession?.sessionRollingHistory.qaHistory,
       summary: currentTutorSession?.sessionRollingHistory.summary ?? "",
       query: query,
+      language,
     },
   });
-  if (response) {
-    appendToContentPanel(panel, "", "assistant", response);
+  if (
+    handleBackendError(panel, response, {
+      timeoutMessage:
+        "The model is taking longer than usual. Please try again.",
+    })
+  ) {
+    loadingEl?.remove();
+    return "Failure";
   }
-  //console.log("this is the response: ", response);
-  if (!response) return "Failure";
-  return response;
+  const reply =
+    typeof response === "string" ? response : (response as any)?.reply;
+  if (typeof reply === "string" && reply.trim()) {
+    loadingEl?.remove();
+    appendToContentPanel(panel, "", "assistant", reply);
+  }
+  loadingEl?.remove();
+  if (!reply) return "Failure";
+  return reply;
 }
 
-function createTimer() {}
 function sendChat() {}
 function minimizeWindow() {}
 
 function showTutorPanel(panel: HTMLElement) {
+  if (panelHideTimerId !== null) {
+    window.clearTimeout(panelHideTimerId);
+    panelHideTimerId = null;
+  }
+  panel.classList.remove("closing");
   panel.style.display = "flex";
   panel.classList.add("open");
 }
 
 function hideTutorPanel(panel: HTMLElement) {
   panel.classList.remove("open");
-  panel.style.display = "none";
+  panel.classList.add("closing");
+  if (panelHideTimerId !== null) {
+    window.clearTimeout(panelHideTimerId);
+  }
+  panelHideTimerId = window.setTimeout(() => {
+    panel.style.display = "none";
+    panel.classList.remove("closing");
+    panelHideTimerId = null;
+  }, 180);
 }
 
 function positionWidgetFromPanel(panel: HTMLElement) {
@@ -2003,9 +2874,29 @@ function escapeHtml(value: string) {
 
 function formatInlineMarkdown(text: string) {
   const parts = text.split("`");
+  const renderInlineMarkup = (value: string) => {
+    const regex = /(\*\*[^*\n]+\*\*|'[^'\n]+')/g;
+    let result = "";
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(value)) !== null) {
+      result += escapeHtml(value.slice(lastIndex, match.index));
+      const token = match[1];
+      if (token.startsWith("**")) {
+        result += `<strong>${escapeHtml(token.slice(2, -2))}</strong>`;
+      } else {
+        result += `<code>${escapeHtml(token.slice(1, -1))}</code>`;
+      }
+      lastIndex = regex.lastIndex;
+    }
+    result += escapeHtml(value.slice(lastIndex));
+    return result;
+  };
   return parts
     .map((part, index) =>
-      index % 2 === 1 ? `<code>${escapeHtml(part)}</code>` : escapeHtml(part),
+      index % 2 === 1
+        ? `<code>${escapeHtml(part)}</code>`
+        : renderInlineMarkup(part),
     )
     .join("");
 }
@@ -2045,7 +2936,7 @@ function renderTextMarkdown(text: string) {
       continue;
     }
 
-    const orderedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+    const orderedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
     if (orderedMatch) {
       flushParagraph();
       if (listType && listType !== "ol") {
@@ -2082,15 +2973,16 @@ function renderTextMarkdown(text: string) {
 }
 
 function renderMarkdown(message: string) {
+  const normalized = message.replace(/\r\n/g, "\n");
   const parts: { type: "text" | "code"; content: string; lang?: string }[] = [];
-  const fence = /```(\w+)?\n([\s\S]*?)```/g;
+  const fence = /```(\w+)?\r?\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = fence.exec(message)) !== null) {
+  while ((match = fence.exec(normalized)) !== null) {
     if (match.index > lastIndex) {
       parts.push({
         type: "text",
-        content: message.slice(lastIndex, match.index),
+        content: normalized.slice(lastIndex, match.index),
       });
     }
     parts.push({
@@ -2100,8 +2992,8 @@ function renderMarkdown(message: string) {
     });
     lastIndex = fence.lastIndex;
   }
-  if (lastIndex < message.length) {
-    parts.push({ type: "text", content: message.slice(lastIndex) });
+  if (lastIndex < normalized.length) {
+    parts.push({ type: "text", content: normalized.slice(lastIndex) });
   }
 
   return parts
@@ -2167,9 +3059,9 @@ function appendPanelMessage(
 function setPanelControlsDisabledGuide(panel: HTMLElement, disabled: boolean) {
   const selectors = [
     ".btn-help-mode",
-    ".btn-timer",
     ".tutor-panel-send",
     ".tutor-panel-prompt",
+    ".btn-gotToWorkspace",
   ];
   for (const selector of selectors) {
     const element = panel.querySelector<HTMLElement>(selector);
@@ -2190,9 +3082,9 @@ function setPanelControlsDisabled(panel: HTMLElement, disabled: boolean) {
   const selectors = [
     ".btn-guide-mode",
     ".btn-help-mode",
-    ".btn-timer",
     ".tutor-panel-send",
     ".tutor-panel-prompt",
+    ".btn-gotToWorkspace",
   ];
   for (const selector of selectors) {
     const element = panel.querySelector<HTMLElement>(selector);
@@ -2213,6 +3105,7 @@ function typeMessage(
   message: HTMLElement,
   contentArea: HTMLElement,
   text: string,
+  options?: { render?: (value: string) => string },
 ) {
   return new Promise<void>((resolve) => {
     let index = 0;
@@ -2228,7 +3121,12 @@ function typeMessage(
     contentArea.addEventListener("scroll", onScroll, { passive: true });
     const tick = () => {
       index = Math.min(text.length, index + step);
-      message.textContent = text.slice(0, index);
+      const slice = text.slice(0, index);
+      if (options?.render) {
+        message.innerHTML = options.render(slice);
+      } else {
+        message.textContent = slice;
+      }
       if (allowAutoScroll) {
         contentArea.scrollTop = targetTop;
       }
@@ -2249,13 +3147,16 @@ async function appendToContentPanel(
   role: string,
   llm_response: string,
 ) {
+  const pretty = prettifyLlMResponse(llm_response);
   const content_area = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (content_area && typeof llm_response === "string") {
     if (role === "assistant") {
       const message = appendPanelMessage(panel, "", "assistant");
       if (!message) return;
-      await typeMessage(message, content_area, llm_response);
-      message.innerHTML = renderMarkdown(llm_response);
+      await typeMessage(message, content_area, pretty, {
+        render: renderMarkdown,
+      });
+      message.innerHTML = renderMarkdown(pretty);
       currentTutorSession?.sessionRollingHistory.qaHistory.push(
         `Assitant: ${llm_response}`,
       );
@@ -2265,14 +3166,31 @@ async function appendToContentPanel(
       content_area.scrollTop = message.offsetTop;
       scheduleSessionPersist(panel);
     } else if (role === "guideAssistant") {
-      const wrapper = appendPanelMessage(panel, "", "guideAssistant");
-      if (!wrapper) return;
+      let wrapper =
+        guideActiveSlab && content_area.contains(guideActiveSlab)
+          ? guideActiveSlab
+          : null;
+      if (!wrapper) {
+        wrapper = document.createElement("div");
+        wrapper.className = "guide-wrapper guide-slab";
+        const list = document.createElement("ul");
+        list.className = "guide-list";
+        wrapper.appendChild(list);
+        content_area.appendChild(wrapper);
+        guideActiveSlab = wrapper;
+      }
 
-      // the bubble is the wrapper's first child
-      const bubble = wrapper.querySelector<HTMLElement>(
-        ".tutor-panel-message--guideAssistant",
-      );
-      if (!bubble) return;
+      const list =
+        wrapper.querySelector<HTMLUListElement>(".guide-list") ??
+        document.createElement("ul");
+      if (!list.classList.contains("guide-list")) {
+        list.className = "guide-list";
+        wrapper.appendChild(list);
+      }
+
+      const item = document.createElement("li");
+      item.className = "guide-item";
+      list.appendChild(item);
 
       if (guideMessageCount === 0) {
         wrapper.classList.add("guide-start");
@@ -2280,9 +3198,17 @@ async function appendToContentPanel(
       guideMessageCount += 1;
       lastGuideMessageEl = wrapper;
 
-      await typeMessage(bubble, content_area, llm_response);
-      bubble.innerHTML = renderMarkdown(llm_response);
+      await typeMessage(item, content_area, pretty, {
+        render: renderMarkdown,
+      });
+      item.innerHTML = renderMarkdown(pretty);
       content_area.scrollTop = wrapper.offsetTop;
+      // currentTutorSession?.sessionRollingHistory.qaHistory.push(
+      //   `Guide: ${llm_response}`,
+      // );
+      // if (currentTutorSession) {
+      //   maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      // }
       scheduleSessionPersist(panel);
     } else if (role === "checkAssistant") {
       const wrapper = appendPanelMessage(panel, "", "checkAssistant");
@@ -2296,11 +3222,19 @@ async function appendToContentPanel(
       // checkmode is one chunk → start + end immediately
       wrapper.classList.add("check-start");
 
-      await typeMessage(bubble, content_area, llm_response);
-      bubble.innerHTML = renderMarkdown(llm_response);
+      await typeMessage(bubble, content_area, pretty, {
+        render: renderMarkdown,
+      });
+      bubble.innerHTML = renderMarkdown(pretty);
 
       wrapper.classList.add("check-end");
       content_area.scrollTop = wrapper.offsetTop;
+      currentTutorSession?.sessionRollingHistory.qaHistory.push(
+        `Check: ${llm_response}`,
+      );
+      if (currentTutorSession) {
+        maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      }
       scheduleSessionPersist(panel);
     }
   }
@@ -2316,6 +3250,7 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
         topics: currentTutorSession?.topics,
         code: writtenCode, // <-- raw string
         action: "check-code",
+        language: currentTutorSession?.language ?? getEditorLanguageFromPage(),
         problem_no: getProblemNumberFromTitle(
           currentTutorSession?.problem ?? "",
         ),
@@ -2323,18 +3258,30 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
         problem_url: currentTutorSession?.problemUrl ?? "",
       },
     });
+    if (
+      handleBackendError(panel, response, {
+        timeoutMessage:
+          "The model is taking longer than usual. Please try again.",
+      })
+    ) {
+      return "Failure";
+    }
     const response_llm = response?.resp;
+    //const pretty = prettifyLlMResponse(response_llm);
     if (currentTutorSession && typeof response_llm === "string") {
       currentTutorSession.content.push(`${response_llm}\n`);
     }
-    await appendToContentPanel(panel, "", "checkAssistant", response_llm);
+    if (typeof response_llm === "string" && response_llm.trim()) {
+      await appendToContentPanel(panel, "", "checkAssistant", response_llm);
+    }
 
     const topics = response?.topics;
-    if (topics && typeof topics === "object") {
+    if (topics && typeof topics === "object" && currentTutorSession) {
       for (const [topic, raw] of Object.entries(
         topics as Record<string, unknown>,
       )) {
         if (!raw || typeof raw !== "object") continue;
+        const normalizedTopic = ensureTopicBucket(currentTutorSession, topic);
 
         const thoughts = (raw as { thoughts_to_remember?: unknown })
           .thoughts_to_remember;
@@ -2353,18 +3300,15 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
             : [];
 
         if (!currentTutorSession) continue;
-        currentTutorSession.topics[topic] ??= {
-          thoughts_to_remember: [],
-          pitfalls: [],
-        };
-
         if (thoughtValues.length > 0) {
-          currentTutorSession.topics[topic].thoughts_to_remember.push(
+          currentTutorSession.topics[normalizedTopic].thoughts_to_remember.push(
             ...thoughtValues,
           );
         }
         if (pitfallValues.length > 0) {
-          currentTutorSession.topics[topic].pitfalls.push(...pitfallValues);
+          currentTutorSession.topics[normalizedTopic].pitfalls.push(
+            ...pitfallValues,
+          );
         }
       }
     }
@@ -2384,6 +3328,9 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   const checkModeClicked =
     panel.querySelector<HTMLButtonElement>(".btn-help-mode");
   const guideMode = panel.querySelector<HTMLButtonElement>(".btn-guide-mode");
+  const goToWorkspace = panel.querySelector<HTMLButtonElement>(
+    ".btn-gotToWorkspace",
+  );
 
   guideMode?.addEventListener("click", () => {
     if (!currentTutorSession) return;
@@ -2414,6 +3361,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       guideModeButton?.classList.add("is-loading"); // #change this to is-active
       guideMessageCount = 0;
       lastGuideMessageEl = null;
+      guideActiveSlab = null;
       attachGuideListeners();
     } else {
       detachGuideListeners();
@@ -2425,6 +3373,21 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       guideModeButton?.classList.remove("is-loading");
     }
     scheduleSessionPersist(panel);
+  });
+
+  goToWorkspace?.addEventListener("click", async () => {
+    if (!WORKSPACE_URL) {
+      console.warn("Workspace URL is not set.");
+      return;
+    }
+    const resp = await browser.runtime.sendMessage({
+      action: "go-to-workspace",
+      payload: { url: WORKSPACE_URL },
+    });
+    handleBackendError(panel, resp, {
+      serverMessage: "Unable to open workspace right now.",
+      lockOnServerError: false,
+    });
   });
 
   const prompt = panel.querySelector<HTMLTextAreaElement>(
@@ -2504,8 +3467,26 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   let isPanelDragging = false;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let dragTargetX = 0;
+  let dragTargetY = 0;
+  let dragRafId: number | null = null;
+  const dragEase = 0.6;
 
   const header = panel.querySelector<HTMLElement>(".tutor-panel-shellbar");
+  const tickDrag = () => {
+    if (!isPanelDragging) {
+      dragRafId = null;
+      return;
+    }
+    const currentX = panel.offsetLeft;
+    const currentY = panel.offsetTop;
+    const easedX = currentX + (dragTargetX - currentX) * dragEase;
+    const easedY = currentY + (dragTargetY - currentY) * dragEase;
+    panel.style.left = `${easedX}px`;
+    panel.style.top = `${easedY}px`;
+    dragRafId = requestAnimationFrame(tickDrag);
+  };
+
   const onMouseMove = (event: MouseEvent) => {
     if (!isPanelDragging) return;
     const nextX = event.clientX - dragOffsetX;
@@ -2513,11 +3494,12 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     const maxX = window.innerWidth - panel.offsetWidth;
     const maxY = window.innerHeight - panel.offsetHeight;
 
-    const clampedX = Math.max(10, Math.min(nextX, maxX));
-    const clampedY = Math.max(10, Math.min(nextY, maxY));
+    dragTargetX = Math.max(10, Math.min(nextX, maxX));
+    dragTargetY = Math.max(10, Math.min(nextY, maxY));
 
-    panel.style.left = `${clampedX}px`;
-    panel.style.top = `${clampedY}px`;
+    if (dragRafId === null) {
+      dragRafId = requestAnimationFrame(tickDrag);
+    }
   };
 
   const stopDragging = () => {
@@ -2525,6 +3507,12 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     isPanelDragging = false;
     document.removeEventListener("mousemove", onMouseMove);
     document.removeEventListener("mouseup", stopDragging);
+    if (dragRafId !== null) {
+      cancelAnimationFrame(dragRafId);
+      dragRafId = null;
+    }
+    panel.style.left = `${dragTargetX}px`;
+    panel.style.top = `${dragTargetY}px`;
     if (currentTutorSession) {
       currentTutorSession.position = {
         x: panel.offsetLeft,
@@ -2539,6 +3527,8 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     isPanelDragging = true;
     dragOffsetX = event.clientX - panel.getBoundingClientRect().left;
     dragOffsetY = event.clientY - panel.getBoundingClientRect().top;
+    dragTargetX = panel.offsetLeft;
+    dragTargetY = panel.offsetTop;
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", stopDragging);
   });

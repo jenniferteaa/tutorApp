@@ -4,6 +4,13 @@ export type Topic = {
   preview?: string[];
 };
 
+export type TopicProblem = {
+  problemNo: number;
+  problemName: string;
+  problemLink?: string;
+  latestDate?: string;
+};
+
 export type Entry = {
   id: string;
   problemId: number;
@@ -25,9 +32,12 @@ export type TopicQueryRow = {
 
 export type TopicDetails = {
   topic: Topic;
-  pitfalls: Entry[];
-  toRemember: Entry[];
+  notesSummary: string;
+  pitfallsSummary: string;
+  problems: TopicProblem[];
   rows: TopicQueryRow[];
+  toRemember: Entry[];
+  pitfalls: Entry[];
 };
 
 export type UserSummary = {

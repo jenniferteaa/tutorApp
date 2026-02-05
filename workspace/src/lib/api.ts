@@ -5,6 +5,7 @@ import {
   Entry,
   Topic,
   TopicDetails,
+  TopicProblem,
   TopicQueryRow,
   UserSummary,
 } from "./types";
@@ -24,13 +25,22 @@ type ActivityRow = {
 type NoteRow = {
   id: number;
   created_at?: string | null;
-  topic_notes?: TopicNoteRow[];
+  topic_notes?: ActivityTopicNoteRow[];
 };
 
-type TopicNoteRow = {
+type ActivityTopicNoteRow = {
   note_made?: string[] | null;
   pitfalls?: string[] | null;
   topics?: { topic_name: string } | null;
+};
+
+type TopicRow = { id: number; topic_name?: string | null };
+
+type SummaryRow = {
+  notes_summary?: string | null;
+  pitfalls_summary?: string | null;
+  updated_at?: string | null;
+  last_touched_entry_id?: number | null;
 };
 
 type UserDetailsRow = {
@@ -200,7 +210,46 @@ export async function getTopicDetails(
   const resolved = requireSession(session);
   const fallbackTopic = { slug: topicSlug, label: topicSlug };
   if (!resolved) {
-    return { topic: fallbackTopic, pitfalls: [], toRemember: [], rows: [] };
+    return {
+      topic: fallbackTopic,
+      notesSummary: "",
+      pitfallsSummary: "",
+      problems: [],
+      rows: [],
+      toRemember: [],
+      pitfalls: [],
+    };
+  }
+
+  const normalizedSlug = normalizeTopicSlug(topicSlug);
+  const topics = await supabaseFetch<TopicRow[]>(
+    "topics",
+    { select: "id,topic_name" },
+    resolved.token,
+  );
+  const matched = topics.find(
+    (row) => normalizeTopicSlug(row.topic_name || "") === normalizedSlug,
+  );
+  const topicId = matched?.id;
+  let resolvedLabel = matched?.topic_name?.trim() || topicSlug;
+
+  let notesSummary = "";
+  let pitfallsSummary = "";
+
+  if (topicId) {
+    const summaryRows = await supabaseFetch<SummaryRow[]>(
+      "summarization_table",
+      {
+        select: "notes_summary,pitfalls_summary,updated_at,last_touched_entry_id",
+        user_id: `eq.${resolved.userId}`,
+        topic_id: `eq.${topicId}`,
+        limit: "1",
+      },
+      resolved.token,
+    );
+    const existing = summaryRows[0];
+    notesSummary = String(existing?.notes_summary ?? "").trim();
+    pitfallsSummary = String(existing?.pitfalls_summary ?? "").trim();
   }
 
   const rows = await supabaseFetch<ActivityRow[]>(
@@ -213,25 +262,36 @@ export async function getTopicDetails(
     resolved.token,
   );
 
-  const pitfalls: Entry[] = [];
-  const toRemember: Entry[] = [];
-  const queryRows: TopicQueryRow[] = [];
-  let resolvedLabel = topicSlug;
-  const normalizedSlug = normalizeTopicSlug(topicSlug);
-
-  // Convert the best available timestamp for ordering into a number
   const rowSortTs = (r: {
     dateTouched?: string;
     activityCreatedAt?: string;
     noteCreatedAt?: string;
   }) => {
-    // Prefer "date_touched" (a date) if present, else activity created_at, else note created_at.
-    // date_touched has no time, so interpret as end-of-day to sort correctly.
     if (r.dateTouched) return Date.parse(`${r.dateTouched}T23:59:59.999Z`);
     if (r.activityCreatedAt) return Date.parse(r.activityCreatedAt);
     if (r.noteCreatedAt) return Date.parse(r.noteCreatedAt);
     return 0;
   };
+
+  const rowDateLabel = (r: {
+    dateTouched?: string | null;
+    activityCreatedAt?: string | null;
+    noteCreatedAt?: string | null;
+  }) => r.dateTouched || r.activityCreatedAt || r.noteCreatedAt || undefined;
+
+  const problemMap = new Map<
+    number,
+    {
+      problemNo: number;
+      problemName: string;
+      problemLink?: string;
+      latestDate?: string;
+      latestTs: number;
+    }
+  >();
+  const queryRows: TopicQueryRow[] = [];
+  const toRemember: Entry[] = [];
+  const pitfalls: Entry[] = [];
 
   for (const activity of rows ?? []) {
     const problemNo = activity.problems?.problem_no ?? 0;
@@ -247,13 +307,19 @@ export async function getTopicDetails(
         resolvedLabel = topicName;
 
         const thoughtItems = Array.isArray(topicNote.note_made)
-          ? topicNote.note_made
+          ? topicNote.note_made.filter(
+              (text): text is string =>
+                typeof text === "string" && text.trim().length > 0,
+            )
           : [];
         const pitfallItems = Array.isArray(topicNote.pitfalls)
-          ? topicNote.pitfalls
+          ? topicNote.pitfalls.filter(
+              (text): text is string =>
+                typeof text === "string" && text.trim().length > 0,
+            )
           : [];
 
-        const row: TopicQueryRow = {
+        queryRows.push({
           problemNo,
           problemName,
           problemLink,
@@ -261,14 +327,11 @@ export async function getTopicDetails(
           activityCreatedAt: activity.created_at ?? undefined,
           noteId: note.id,
           noteCreatedAt: note.created_at ?? undefined,
-          noteMade: thoughtItems.filter(Boolean),
-          pitfalls: pitfallItems.filter(Boolean),
-        };
-
-        queryRows.push(row);
+          noteMade: thoughtItems,
+          pitfalls: pitfallItems,
+        });
 
         for (const [index, text] of thoughtItems.entries()) {
-          if (!text) continue;
           toRemember.push({
             id: `${note.id}-t-${index}`,
             problemId: problemNo,
@@ -278,7 +341,6 @@ export async function getTopicDetails(
         }
 
         for (const [index, text] of pitfallItems.entries()) {
-          if (!text) continue;
           pitfalls.push({
             id: `${note.id}-p-${index}`,
             problemId: problemNo,
@@ -286,38 +348,55 @@ export async function getTopicDetails(
             text,
           });
         }
+
+        const ts = rowSortTs({
+          dateTouched: activity.date_touched ?? undefined,
+          activityCreatedAt: activity.created_at ?? undefined,
+          noteCreatedAt: note.created_at ?? undefined,
+        });
+        const dateLabel = rowDateLabel({
+          dateTouched: activity.date_touched ?? undefined,
+          activityCreatedAt: activity.created_at ?? undefined,
+          noteCreatedAt: note.created_at ?? undefined,
+        });
+
+        const existing = problemMap.get(problemNo);
+        if (!existing) {
+          problemMap.set(problemNo, {
+            problemNo,
+            problemName,
+            problemLink,
+            latestDate: dateLabel,
+            latestTs: ts,
+          });
+        } else {
+          if (!existing.problemLink && problemLink) {
+            existing.problemLink = problemLink;
+          }
+          if (ts > existing.latestTs) {
+            existing.latestTs = ts;
+            existing.latestDate = dateLabel;
+          }
+        }
       }
     }
   }
 
-  // 1) Compute "latest timestamp per problem" so problems can be ordered by recency
-  const latestByProblem = new Map<number, number>();
-  for (const r of queryRows) {
-    const ts = rowSortTs(r);
-    const prev = latestByProblem.get(r.problemNo) ?? 0;
-    if (ts > prev) latestByProblem.set(r.problemNo, ts);
-  }
-
-  // 2) Sort rows so they appear grouped by problem, ordered by most recent problem first,
-  //    and within each problem ordered by most recent entry first.
-  queryRows.sort((a, b) => {
-    const aLatest = latestByProblem.get(a.problemNo) ?? 0;
-    const bLatest = latestByProblem.get(b.problemNo) ?? 0;
-    if (aLatest !== bLatest) return bLatest - aLatest; // problem ordering
-
-    const aTs = rowSortTs(a);
-    const bTs = rowSortTs(b);
-    if (aTs !== bTs) return bTs - aTs; // within-problem ordering
-
-    // stable tie-breaker
-    return (b.noteId ?? 0) - (a.noteId ?? 0);
-  });
+  const problems: TopicProblem[] = Array.from(problemMap.values())
+    .sort((a, b) => {
+      if (a.latestTs !== b.latestTs) return b.latestTs - a.latestTs;
+      return a.problemNo - b.problemNo;
+    })
+    .map(({ latestTs, ...rest }) => rest);
 
   return {
     topic: { slug: topicSlug, label: resolvedLabel },
-    pitfalls,
-    toRemember,
+    notesSummary,
+    pitfallsSummary,
+    problems,
     rows: queryRows,
+    toRemember,
+    pitfalls,
   };
 }
 
