@@ -282,7 +282,10 @@ async function handleGuideModeStatus(payload: {
 
 async function handleSessionInit(payload: {
   sessionId: string;
-  topics: Record<string, { thoughts_to_remember: string[]; pitfalls: string[] }>;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
 }) {
   const auth = await getAuthState();
   if (!auth?.jwt) {
@@ -294,21 +297,24 @@ async function handleSessionInit(payload: {
 async function forwardSessionInit(
   payload: {
     sessionId: string;
-    topics: Record<string, { thoughts_to_remember: string[]; pitfalls: string[] }>;
+    topics: Record<
+      string,
+      { thoughts_to_remember: string[]; pitfalls: string[] }
+    >;
   },
   token: string,
 ) {
-  const result = await fetchJsonWithTimeout<{ success?: boolean; error?: string }>(
-    `${BACKEND_BASE_URL}/api/session/init`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}/api/session/init`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify(payload),
+  });
   if (!result.success) return result;
   if (result.data?.success === false) {
     return {
@@ -331,17 +337,17 @@ async function forwardGuideModeStatus(
   token: string,
 ) {
   const endpoint = payload.enabled ? "/api/guide/enable" : "/api/guide/disable";
-  const result = await fetchJsonWithTimeout<{ success?: boolean; error?: string }>(
-    `${BACKEND_BASE_URL}${endpoint}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+  const result = await fetchJsonWithTimeout<{
+    success?: boolean;
+    error?: string;
+  }>(`${BACKEND_BASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-  );
+    body: JSON.stringify(payload),
+  });
   if (!result.success) return result;
   if (result.data?.success === false) {
     return {
@@ -493,7 +499,11 @@ type BackendFetchError = {
 
 function extractErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object") return fallback;
-  const data = payload as { error?: unknown; detail?: unknown; message?: unknown };
+  const data = payload as {
+    error?: unknown;
+    detail?: unknown;
+    message?: unknown;
+  };
   if (typeof data.error === "string" && data.error.trim()) return data.error;
   if (typeof data.detail === "string" && data.detail.trim()) return data.detail;
   if (typeof data.message === "string" && data.message.trim())
@@ -509,7 +519,10 @@ async function fetchJsonWithTimeout<T>(
   const controller = new AbortController();
   const timerId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
     const text = await response.text();
     let data: T | null = null;
     try {
@@ -527,7 +540,7 @@ async function fetchJsonWithTimeout<T>(
       };
     }
 
-    return { success: true, data: (data ?? ({} as T)), status: response.status };
+    return { success: true, data: data ?? ({} as T), status: response.status };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       return { success: false, error: "Request timed out", timeout: true };
@@ -881,7 +894,10 @@ function isGuideModeStatusPayload(payload: unknown): payload is {
 
 function isSessionInitPayload(payload: unknown): payload is {
   sessionId: string;
-  topics: Record<string, { thoughts_to_remember: string[]; pitfalls: string[] }>;
+  topics: Record<
+    string,
+    { thoughts_to_remember: string[]; pitfalls: string[] }
+  >;
 } {
   if (typeof payload !== "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
@@ -1007,7 +1023,11 @@ async function supabaseLogin(payload: { email: string; password: string }) {
     }),
   });
   if (!result.success) return result;
-  if (result.data?.success === false || !result.data?.token || !result.data?.userId) {
+  if (
+    result.data?.success === false ||
+    !result.data?.token ||
+    !result.data?.userId
+  ) {
     return {
       success: false,
       status: result.status,

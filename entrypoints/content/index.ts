@@ -1,3 +1,27 @@
+import {
+  ensureTopicBucket,
+  getCanonicalProblemUrl,
+  getEditorLanguageFromPage,
+  getProblemNumberFromTitle,
+  getProblemTitleFromPage,
+  getRollingTopicsFromPage,
+} from "./leetcode";
+import { prettifyLlMResponse, renderMarkdown } from "./ui/render";
+import {
+  applyStoredSessionToPanel,
+  clearAuthFromStorage,
+  clearSessionState,
+  hydrateStoredSessionCache,
+  isAuthExpired,
+  isStoredSessionForUser,
+  loadAuthFromStorage,
+  loadSessionState,
+  saveSessionState,
+  scheduleSessionPersist,
+  startSessionCleanupSweep,
+} from "./session/storage";
+import { state, type SessionRollingHistoryLLM, type TutorSession } from "./state";
+
 export default defineContentScript({
   matches: ["https://leetcode.com/problems/*"],
   main() {
@@ -16,25 +40,10 @@ export default defineContentScript({
   },
 });
 // <all_urls>
-let widget: HTMLElement | null = null;
-let panel: HTMLElement | null = null;
-let isDragging = false;
-let isWindowOpen = false;
-let dragOffset = { x: 0, y: 0 };
-let lastPosition = { x: 0, y: 0 };
-let menuCloseTimeout: number | null = null;
-let globalMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
-let flushInFlight: boolean;
-let panelHideTimerId: number | null = null;
-let suspendPanelOps = false;
-type Pair = [string, string];
-let queue: Pair[] = [];
-let currentBatch: Pair;
-let editedLineQueue: string[] = [];
-let lastGuideCursorLine: number | null = null;
 
 function initializeWidget() {
   console.log("The widget is being loaded to the page");
+  state.lastCanonicalProblemUrl = getCanonicalProblemUrl(window.location.href);
   createFloatingWidget();
   loadWidgetPosition();
   setupMessageListener();
@@ -42,12 +51,12 @@ function initializeWidget() {
   startProblemUrlWatcher();
   startSessionCleanupSweep();
   void hydrateStoredSessionCache().then(() => {
-    if (pendingStoredSession?.panelOpen) {
+    if (state.pendingStoredSession?.panelOpen) {
       void openTutorPanel();
     }
   });
   window.addEventListener("beforeunload", () => {
-    void saveSessionState(currentTutorSession?.element ?? null);
+    void saveSessionState(state.currentTutorSession?.element ?? null);
   });
 }
 
@@ -59,10 +68,10 @@ function createFloatingWidget() {
   }
 
   // create main widget container
-  widget = document.createElement("div");
-  widget.id = "tutor-widget";
+  state.widget = document.createElement("div");
+  state.widget.id = "tutor-widget";
 
-  widget.innerHTML = `
+  state.widget.innerHTML = `
   <div class="widget-main-button" id="main-button">
   </div>
   `;
@@ -830,80 +839,9 @@ function createFloatingWidget() {
 
 `;
   document.head.appendChild(style);
-  document.body.appendChild(widget);
+  document.body.appendChild(state.widget);
 
   setupWidgetEvents();
-}
-
-function prettifyLlMResponse(text: string) {
-  // Convert "To fix: a; b; c." into bullets
-  const m = text.match(/([\s\S]*?)\bTo fix:\s*([\s\S]*)/i);
-  if (!m) return wrapTableLikeBlocks(text);
-
-  const before = m[1].trim();
-  const fixesRaw = m[2].trim();
-
-  // split on semicolons
-  const fixes = fixesRaw
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (fixes.length === 0) return text;
-
-  const bulletBlock = fixes.map((f) => `- ${f.replace(/\.$/, "")}`).join("\n");
-
-  const combined = `${before}\n\n**To fix**\n${bulletBlock}`;
-  return wrapTableLikeBlocks(combined);
-}
-
-function wrapTableLikeBlocks(text: string) {
-  const lines = text.split("\n");
-  const isSeparator = (line: string) =>
-    /^\s*\|?[-:\s|]+\|?\s*$/.test(line);
-  const isTableLine = (line: string) =>
-    (line.match(/\|/g)?.length ?? 0) >= 2;
-
-  let inCodeFence = false;
-  const out: string[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim().startsWith("```")) {
-      inCodeFence = !inCodeFence;
-      out.push(line);
-      i += 1;
-      continue;
-    }
-    if (inCodeFence) {
-      out.push(line);
-      i += 1;
-      continue;
-    }
-
-    if (isTableLine(line) || isSeparator(line)) {
-      const block: string[] = [];
-      while (i < lines.length) {
-        const candidate = lines[i];
-        if (candidate.trim().startsWith("```")) break;
-        if (!(isTableLine(candidate) || isSeparator(candidate))) break;
-        block.push(candidate);
-        i += 1;
-      }
-      if (block.length > 0) {
-        out.push("```table");
-        out.push(...block);
-        out.push("```");
-      }
-      continue;
-    }
-
-    out.push(line);
-    i += 1;
-  }
-
-  return out.join("\n");
 }
 
 function setupWidgetEvents() {
@@ -919,7 +857,7 @@ function setupWidgetEvents() {
 
   // Boundary constraint function
   function constrainToBounds(x: number, y: number): { x: number; y: number } {
-    if (!widget) return { x, y };
+    if (!state.widget) return { x, y };
 
     const widgetRect = { width: 50, height: 50 }; // Widget dimensions
     const windowWidth = window.innerWidth;
@@ -945,7 +883,7 @@ function setupWidgetEvents() {
 
   // Snap to nearest edge function
   function snapToNearestEdge(x: number, y: number): { x: number; y: number } {
-    if (!widget) return { x, y };
+    if (!state.widget) return { x, y };
 
     const widgetRect = { width: 50, height: 50 };
     const windowWidth = window.innerWidth;
@@ -997,9 +935,9 @@ function setupWidgetEvents() {
     startPosition = { x: e.clientX, y: e.clientY };
     hasMovedWhileDragging = false;
 
-    const rect = widget!.getBoundingClientRect();
-    dragOffset.x = e.clientX - rect.left;
-    dragOffset.y = e.clientY - rect.top;
+    const rect = state.widget!.getBoundingClientRect();
+    state.dragOffset.x = e.clientX - rect.left;
+    state.dragOffset.y = e.clientY - rect.top;
 
     mainButton.classList.add("dragging");
 
@@ -1013,10 +951,10 @@ function setupWidgetEvents() {
       suppressClick = false;
       return;
     }
-    if (!isDragging && !hasMovedWhileDragging) {
+    if (!state.isDragging && !hasMovedWhileDragging) {
       e.preventDefault();
       e.stopPropagation();
-      if (isWindowOpen) {
+      if (state.isWindowOpen) {
         closeTutorPanel(); // highlight it instead; highlightTutorPanel
       } else {
         void openTutorPanel(); //
@@ -1032,26 +970,29 @@ function setupWidgetEvents() {
     );
 
     // Start dragging if moved > 3px or held for > 100ms
-    if (!isDragging && (distance > 3 || timeDiff > 100)) {
-      isDragging = true;
+    if (!state.isDragging && (distance > 3 || timeDiff > 100)) {
+      state.isDragging = true;
       hasMovedWhileDragging = true;
       //closeMenu();
       document.body.style.cursor = "grabbing";
     }
 
-    if (isDragging) {
-      const newX = e.clientX - dragOffset.x;
-      const newY = e.clientY - dragOffset.y;
+    if (state.isDragging) {
+      const newX = e.clientX - state.dragOffset.x;
+      const newY = e.clientY - state.dragOffset.y;
 
       // Apply boundary constraints
       const constrainedPosition = constrainToBounds(newX, newY);
 
       // Use transform for smoother movement
-      widget!.style.transform = `translate(${constrainedPosition.x}px, ${constrainedPosition.y}px)`;
-      widget!.style.left = "0";
-      widget!.style.top = "0";
+      state.widget!.style.transform = `translate(${constrainedPosition.x}px, ${constrainedPosition.y}px)`;
+      state.widget!.style.left = "0";
+      state.widget!.style.top = "0";
 
-      lastPosition = { x: constrainedPosition.x, y: constrainedPosition.y };
+      state.lastPosition = {
+        x: constrainedPosition.x,
+        y: constrainedPosition.y,
+      };
     }
   }
 
@@ -1064,68 +1005,48 @@ function setupWidgetEvents() {
     }
     document.body.style.cursor = "";
 
-    if (isDragging) {
+    if (state.isDragging) {
       suppressClick = true;
       // Apply edge snapping if widget is partially outside bounds
-      const snappedPosition = snapToNearestEdge(lastPosition.x, lastPosition.y);
+      const snappedPosition = snapToNearestEdge(
+        state.lastPosition.x,
+        state.lastPosition.y,
+      );
 
       // Animate to snapped position if different from current position
       if (
-        snappedPosition.x !== lastPosition.x ||
-        snappedPosition.y !== lastPosition.y
+        snappedPosition.x !== state.lastPosition.x ||
+        snappedPosition.y !== state.lastPosition.y
       ) {
-        widget!.style.transition = "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
-        widget!.style.left = snappedPosition.x + "px";
-        widget!.style.top = snappedPosition.y + "px";
-        widget!.style.transform = "";
+        state.widget!.style.transition =
+          "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+        state.widget!.style.left = snappedPosition.x + "px";
+        state.widget!.style.top = snappedPosition.y + "px";
+        state.widget!.style.transform = "";
 
         // Remove transition after animation
         setTimeout(() => {
-          if (widget) {
-            widget.style.transition = "";
+          if (state.widget) {
+            state.widget.style.transition = "";
           }
         }, 15000);
 
-        lastPosition = snappedPosition;
+        state.lastPosition = snappedPosition;
       } else {
         // Apply final position normally
-        widget!.style.left = lastPosition.x + "px";
-        widget!.style.top = lastPosition.y + "px";
-        widget!.style.transform = "";
+        state.widget!.style.left = state.lastPosition.x + "px";
+        state.widget!.style.top = state.lastPosition.y + "px";
+        state.widget!.style.transform = "";
       }
 
       saveWidgetPosition();
     }
 
-    isDragging = false;
+    state.isDragging = false;
 
     // Reset drag tracking
     hasMovedWhileDragging = false;
   }
-}
-
-function getCanonicalProblemUrl(href: string): string {
-  try {
-    const { origin, pathname } = new URL(href);
-    const match = pathname.match(/^\/problems\/[^/]+/);
-    if (match) return `${origin}${match[0]}`;
-    return `${origin}${pathname}`;
-  } catch {
-    return href;
-  }
-}
-
-function getProblemTitleFromPage(): string {
-  return (
-    document.querySelector("div.text-title-large a")?.textContent?.trim() ?? ""
-  );
-}
-
-function getProblemNumberFromTitle(title: string): number | null {
-  const match = title.match(/^\s*(\d+)/);
-  if (!match) return null;
-  const value = Number(match[1]);
-  return Number.isFinite(value) ? value : null;
 }
 
 function isStrongPassword(password: string): boolean {
@@ -1138,205 +1059,15 @@ function isStrongPassword(password: string): boolean {
   return true;
 }
 
-const CANONICAL_TOPICS = [
-  "Array",
-  "String",
-  "Hash Table",
-  "Math",
-  "Dynamic Programming",
-  "Sorting",
-  "Greedy",
-  "Depth-First Search",
-  "Binary Search",
-  "Database",
-  "Matrix",
-  "Bit Manipulation",
-  "Tree",
-  "Breadth-First Search",
-  "Two Pointers",
-  "Prefix Sum",
-  "Heap (Priority Queue)",
-  "Simulation",
-  "Counting",
-  "Graph Theory",
-  "Binary Tree",
-  "Stack",
-  "Sliding Window",
-  "Enumeration",
-  "Design",
-  "Backtracking",
-  "Union-Find",
-  "Number Theory",
-  "Linked List",
-  "Ordered Set",
-  "Segment Tree",
-  "Monotonic Stack",
-  "Trie",
-  "Divide and Conquer",
-  "Combinatorics",
-  "Bitmask",
-  "Recursion",
-  "Queue",
-  "Geometry",
-  "Binary Indexed Tree",
-  "Memoization",
-  "Hash Function",
-  "Binary Search Tree",
-  "Shortest Path",
-  "String Matching",
-  "Topological Sort",
-  "Rolling Hash",
-  "Game Theory",
-  "Interactive",
-  "Data Stream",
-  "Monotonic Queue",
-  "Brainteaser",
-  "Doubly-Linked List",
-  "Merge Sort",
-  "Randomized",
-  "Counting Sort",
-  "Iterator",
-  "Concurrency",
-  "Quickselect",
-  "Suffix Array",
-  "Sweep Line",
-  "Minimum Spanning Tree",
-  "Bucket Sort",
-  "Shell",
-  "Reservoir Sampling",
-  "Radix Sort",
-  "Rejection Sampling",
-];
-
-const TOPIC_REPLACEMENTS: Record<string, string> = {
-  "Dynamic Programming": "DP",
-  "Depth-First Search": "DFS",
-  "Breadth-First Search": "BFS",
-  "Heap (Priority Queue)": "Heaps (PQ)",
-  "Binary Indexed Tree": "Binary Trees",
-  "Binary Search Tree": "BST",
-  "Doubly-Linked List": "DLL",
-  "Minimum Spanning Tree": "MST",
-};
-
-function normalizeTopicKey(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[_/]+/g, " ")
-    .replace(/-/g, " ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const CANONICAL_TOPIC_MAP = new Map(
-  CANONICAL_TOPICS.map((topic) => [
-    normalizeTopicKey(topic),
-    TOPIC_REPLACEMENTS[topic] ?? topic,
-  ]),
-);
-Object.values(TOPIC_REPLACEMENTS).forEach((replacement) => {
-  CANONICAL_TOPIC_MAP.set(normalizeTopicKey(replacement), replacement);
-});
-
-function titleCaseTopic(value: string): string {
-  return value
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-function resolveTopicLabel(raw: string): string {
-  const key = normalizeTopicKey(raw);
-  if (!key) return raw.trim();
-  const direct = CANONICAL_TOPIC_MAP.get(key);
-  if (direct) return direct;
-
-  const parts = key.split(" ");
-  if (parts.length > 0) {
-    const last = parts[parts.length - 1];
-    if (last.endsWith("s")) {
-      parts[parts.length - 1] = last.slice(0, -1);
-      const singularKey = parts.join(" ");
-      const match = CANONICAL_TOPIC_MAP.get(singularKey);
-      if (match) return match;
-    } else {
-      parts[parts.length - 1] = `${last}s`;
-      const pluralKey = parts.join(" ");
-      const match = CANONICAL_TOPIC_MAP.get(pluralKey);
-      if (match) return match;
-    }
-  }
-
-  return titleCaseTopic(key);
-}
-
-function ensureTopicBucket(session: TutorSession, topic: string): string {
-  const normalized = resolveTopicLabel(topic);
-  const existingKey = Object.keys(session.topics).find(
-    (key) => resolveTopicLabel(key) === normalized,
-  );
-  if (existingKey && existingKey !== normalized) {
-    session.topics[normalized] = session.topics[existingKey];
-    delete session.topics[existingKey];
-  }
-  session.topics[normalized] ??= {
-    thoughts_to_remember: [],
-    pitfalls: [],
-  };
-  return normalized;
-}
-
-function getSessionStorageKey(userId: string, problemName: string): string {
-  return `${SESSION_STORAGE_KEY}:${encodeURIComponent(
-    userId,
-  )}:${encodeURIComponent(problemName)}`;
-}
-
-function getRollingTopicsFromPage(): Record<
-  string,
-  { thoughts_to_remember: string[]; pitfalls: string[] }
-> {
-  const topicElements = document.querySelectorAll('a[href^="/tag/"]');
-  const topicsList = Array.from(topicElements)
-    .map((el) => el.getAttribute("href"))
-    .filter((href): href is string => !!href)
-    .map((href) => href.replace("/tag/", "").replace("/", ""))
-    .map((slug) => resolveTopicLabel(slug));
-
-  return Object.fromEntries(
-    Array.from(new Set(topicsList)).map((t) => [
-      t,
-      { thoughts_to_remember: [], pitfalls: [] },
-    ]),
-  );
-}
-
-function getEditorLanguageFromPage(): string {
-  const editor = document.querySelector("#editor");
-  if (!editor) return "";
-
-  const button = editor.querySelector('button[aria-haspopup="dialog"]');
-  if (!button) return "";
-
-  const textNode = Array.from(button.childNodes).find(
-    (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
-  );
-  return textNode?.textContent?.trim() ?? button.textContent?.trim() ?? "";
-}
-
 const LANGUAGE_BUTTON_SELECTOR = '#editor button[aria-haspopup="dialog"]';
-let languageObserver: MutationObserver | null = null;
-let languageObserverTarget: HTMLElement | null = null;
 
 function syncSessionLanguageFromPage() {
-  if (!currentTutorSession) return;
+  if (!state.currentTutorSession) return;
   const language = getEditorLanguageFromPage();
   if (!language) return;
-  if (currentTutorSession.language === language) return;
-  currentTutorSession.language = language;
-  scheduleSessionPersist(currentTutorSession.element ?? null);
+  if (state.currentTutorSession.language === language) return;
+  state.currentTutorSession.language = language;
+  scheduleSessionPersist(state.currentTutorSession.element ?? null);
 }
 
 function ensureLanguageObserver() {
@@ -1354,17 +1085,17 @@ function ensureLanguageObserver() {
     );
   }
 
-  if (languageObserverTarget === button && languageObserver) {
+  if (state.languageObserverTarget === button && state.languageObserver) {
     syncSessionLanguageFromPage();
     return;
   }
 
-  languageObserver?.disconnect();
-  languageObserverTarget = button;
-  languageObserver = new MutationObserver(() => {
+  state.languageObserver?.disconnect();
+  state.languageObserverTarget = button;
+  state.languageObserver = new MutationObserver(() => {
     syncSessionLanguageFromPage();
   });
-  languageObserver.observe(button, {
+  state.languageObserver.observe(button, {
     childList: true,
     characterData: true,
     subtree: true,
@@ -1417,42 +1148,43 @@ async function openTutorPanel() {
   }
 
   if (
-    currentTutorSession &&
-    currentTutorSession.element &&
-    document.body.contains(currentTutorSession.element)
+    state.currentTutorSession &&
+    state.currentTutorSession.element &&
+    document.body.contains(state.currentTutorSession.element)
   ) {
     ensureLanguageObserver();
     syncSessionLanguageFromPage();
-    showTutorPanel(currentTutorSession.element);
+    showTutorPanel(state.currentTutorSession.element);
     hideWidget();
-    isWindowOpen = true;
-    highlightExistingPanel(currentTutorSession.element);
-    const contentArea = currentTutorSession.element.querySelector<HTMLElement>(
-      ".tutor-panel-content",
-    );
+    state.isWindowOpen = true;
+    highlightExistingPanel(state.currentTutorSession.element);
+    const contentArea =
+      state.currentTutorSession.element.querySelector<HTMLElement>(
+        ".tutor-panel-content",
+      );
     if (contentArea) {
       requestAnimationFrame(() => {
         contentArea.scrollTop = contentArea.scrollHeight;
       });
     }
     if (!authUserId || authExpired) {
-      lockPanel(currentTutorSession.element);
+      lockPanel(state.currentTutorSession.element);
       ensureAuthPrompt(
-        currentTutorSession.element,
+        state.currentTutorSession.element,
         authExpired ? "session expired, please log back in" : undefined,
       );
     } else {
-      void initSessionTopicsIfNeeded(currentTutorSession);
+      void initSessionTopicsIfNeeded(state.currentTutorSession);
     }
     markUserActivity();
-    scheduleSessionPersist(currentTutorSession.element);
+    scheduleSessionPersist(state.currentTutorSession.element);
     return;
   }
 
-  if (currentTutorSession?.userId) {
+  if (state.currentTutorSession?.userId) {
     showPanelLoading();
     try {
-      await saveSessionState(currentTutorSession.element ?? null, {
+      await saveSessionState(state.currentTutorSession.element ?? null, {
         force: true,
       });
     } finally {
@@ -1460,27 +1192,34 @@ async function openTutorPanel() {
     }
   }
 
-  if (!pendingStoredSession) {
+  if (!state.pendingStoredSession) {
     if (authUserId) {
       const stored = await loadSessionState(
         authUserId,
         getProblemTitleFromPage(),
       );
-      if (stored && isStoredSessionForUser(stored, authUserId)) {
-        pendingStoredSession = stored;
+      if (
+        stored &&
+        isStoredSessionForUser(
+          stored,
+          authUserId,
+          getCanonicalProblemUrl(window.location.href),
+        )
+      ) {
+        state.pendingStoredSession = stored;
       }
     }
   }
 
-  if (pendingStoredSession) {
+  if (state.pendingStoredSession) {
     const tutorPanel = createTutorPanel();
-    applyStoredSessionToPanel(tutorPanel, pendingStoredSession);
-    pendingStoredSession = null;
+    applyStoredSessionToPanel(tutorPanel, state.pendingStoredSession);
+    state.pendingStoredSession = null;
     ensureLanguageObserver();
     syncSessionLanguageFromPage();
     showTutorPanel(tutorPanel);
     hideWidget();
-    isWindowOpen = true;
+    state.isWindowOpen = true;
     markUserActivity();
     if (!authUserId || authExpired) {
       lockPanel(tutorPanel); // #lockpanel
@@ -1488,8 +1227,8 @@ async function openTutorPanel() {
         tutorPanel,
         authExpired ? "session expired, please log back in" : undefined,
       );
-    } else if (currentTutorSession) {
-      void initSessionTopicsIfNeeded(currentTutorSession);
+    } else if (state.currentTutorSession) {
+      void initSessionTopicsIfNeeded(state.currentTutorSession);
     }
     scheduleSessionPersist(tutorPanel);
     return;
@@ -1500,15 +1239,15 @@ async function openTutorPanel() {
     console.log("There was an error creating a panel");
     return;
   }
-  currentTutorSession = buildFreshSession(tutorPanel, authUserId);
+  state.currentTutorSession = buildFreshSession(tutorPanel, authUserId);
   ensureLanguageObserver();
   syncSessionLanguageFromPage();
   showTutorPanel(tutorPanel);
   hideWidget();
-  isWindowOpen = true;
+  state.isWindowOpen = true;
   markUserActivity();
   scheduleSessionPersist(tutorPanel);
-  if (!currentTutorSession) return;
+  if (!state.currentTutorSession) return;
   if (!authUserId || authExpired) {
     lockPanel(tutorPanel);
     ensureAuthPrompt(
@@ -1516,8 +1255,8 @@ async function openTutorPanel() {
       authExpired ? "session expired, please log back in" : undefined,
     );
   } else {
-    currentTutorSession.userId = authUserId;
-    void initSessionTopicsIfNeeded(currentTutorSession);
+    state.currentTutorSession.userId = authUserId;
+    void initSessionTopicsIfNeeded(state.currentTutorSession);
   }
   // lockPanel
   // Auto-focus the textarea when created via shortcut
@@ -1532,30 +1271,22 @@ async function openTutorPanel() {
   }, 100);
 }
 
-type SessionRollingHistoryLLM = {
-  qaHistory: string[];
-  summary: string;
-  toSummarize: string[];
-};
-
-let summarizeInFlight = false;
-
 async function requestHistorySummary(history: SessionRollingHistoryLLM) {
-  if (summarizeInFlight || history.toSummarize.length === 0) return;
+  if (state.summarizeInFlight || history.toSummarize.length === 0) return;
   //console.log("This is the toSummarize before clearing: ", history.toSummarize);
   const summarizeBatch = history.toSummarize.splice(0);
-  summarizeInFlight = true;
+  state.summarizeInFlight = true;
   try {
     const response = await browser.runtime.sendMessage({
       action: "summarize-history",
       payload: {
-        sessionId: currentTutorSession?.sessionId ?? "",
+        sessionId: state.currentTutorSession?.sessionId ?? "",
         summarize: summarizeBatch,
         summary: history.summary,
       },
     });
     if (
-      handleBackendError(currentTutorSession?.element ?? null, response, {
+      handleBackendError(state.currentTutorSession?.element ?? null, response, {
         silent: true,
       })
     ) {
@@ -1567,7 +1298,7 @@ async function requestHistorySummary(history: SessionRollingHistoryLLM) {
       history.summary = reply;
     }
   } finally {
-    summarizeInFlight = false;
+    state.summarizeInFlight = false;
   }
 }
 
@@ -1577,36 +1308,6 @@ function maybeQueueSummary(history: SessionRollingHistoryLLM) {
   history.toSummarize.push(...moved);
   void requestHistorySummary(history);
 }
-
-type RollingStateGuideMode = {
-  problem: string;
-  nudges: string[];
-  lastEdit: string;
-};
-
-type TutorSession = {
-  element: HTMLElement;
-  sessionId: string;
-  userId: string;
-  content: string[];
-  problem: string;
-  problemUrl: string;
-  language: string;
-  topics: Record<
-    string,
-    { thoughts_to_remember: string[]; pitfalls: string[] }
-  >;
-  sessionTopicsInitialized: boolean;
-  prompt: string;
-  position: PanelPosition | null;
-  size: PanelSize | null;
-  guideModeEnabled: boolean;
-  checkModeEnabled: boolean;
-  rollingStateGuideMode: RollingStateGuideMode;
-  sessionRollingHistory: SessionRollingHistoryLLM;
-};
-
-let currentTutorSession: TutorSession | null = null;
 
 async function initSessionTopicsIfNeeded(session: TutorSession) {
   if (session.sessionTopicsInitialized) return;
@@ -1624,227 +1325,12 @@ async function initSessionTopicsIfNeeded(session: TutorSession) {
   }
 }
 
-type StoredAuth = {
-  userId: string;
-  jwt: string;
-  accessToken?: string;
-  issuedAt?: number;
-  expiresAt?: number;
-};
-const AUTH_STORAGE_KEY = "vibetutor-auth";
-const SESSION_STORAGE_KEY = "vibetutor-session";
 const WORKSPACE_URL = "http://localhost:3000/auth/bridge";
 
 // const WORKSPACE_URL = ""; // TODO: paste workspace auth-bridge URL here
 //const INACTIVITY_MS = 1 * 60 * 1000; // 57,600,000
 const INACTIVITY_MS = 16 * 60 * 60 * 1000; // 57,600,000
 const ACTIVITY_PERSIST_INTERVAL_MS = 15000;
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const SESSION_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
-const SESSION_KEY_PREFIX = `${SESSION_STORAGE_KEY}:`;
-
-type StoredTutorSession = {
-  state: Omit<TutorSession, "element">;
-  panelOpen: boolean;
-  contentHtml: string;
-  contentScrollTop?: number;
-  lastActivityAt: number;
-};
-
-let pendingStoredSession: StoredTutorSession | null = null;
-let lastActivityAt = Date.now();
-let lastActivityStoredAt = 0;
-let sessionRestorePending = false;
-let persistTimerId: number | null = null;
-let inactivityTimerId: number | null = null;
-let problemUrlWatcherId: number | null = null;
-let lastCanonicalProblemUrl = getCanonicalProblemUrl(window.location.href);
-let cleanupTimerId: number | null = null;
-
-async function loadAuthFromStorage() {
-  const stored = await browser.storage.local.get(AUTH_STORAGE_KEY);
-  return (stored[AUTH_STORAGE_KEY] as StoredAuth | undefined) ?? null;
-}
-
-function isAuthExpired(auth: StoredAuth | null) {
-  if (!auth?.expiresAt) return false;
-  return Date.now() > auth.expiresAt;
-}
-
-async function clearAuthFromStorage() {
-  await browser.storage.local.remove(AUTH_STORAGE_KEY);
-  await browser.runtime.sendMessage({ action: "clear-auth" });
-}
-
-async function saveSessionState(
-  panel?: HTMLElement | null,
-  options?: { force?: boolean },
-) {
-  if (!currentTutorSession) return;
-  if (!currentTutorSession.userId) return;
-  if (sessionRestorePending && !options?.force) return;
-  const contentArea =
-    panel?.querySelector<HTMLElement>(".tutor-panel-content") ??
-    currentTutorSession.element?.querySelector<HTMLElement>(
-      ".tutor-panel-content",
-    );
-  const storageKey = getSessionStorageKey(
-    currentTutorSession.userId,
-    currentTutorSession.problem,
-  );
-  const stored: StoredTutorSession = {
-    state: {
-      sessionId: currentTutorSession.sessionId,
-      userId: currentTutorSession.userId,
-      content: currentTutorSession.content,
-      sessionTopicsInitialized: currentTutorSession.sessionTopicsInitialized,
-      language: currentTutorSession.language,
-      problem: currentTutorSession.problem,
-      problemUrl: currentTutorSession.problemUrl,
-      topics: currentTutorSession.topics,
-      prompt: currentTutorSession.prompt,
-      position: currentTutorSession.position,
-      size: currentTutorSession.size,
-      guideModeEnabled: currentTutorSession.guideModeEnabled,
-      checkModeEnabled: currentTutorSession.checkModeEnabled,
-      rollingStateGuideMode: currentTutorSession.rollingStateGuideMode,
-      sessionRollingHistory: currentTutorSession.sessionRollingHistory,
-    },
-    panelOpen: isWindowOpen,
-    contentHtml: contentArea?.innerHTML ?? "",
-    contentScrollTop: contentArea?.scrollTop ?? 0,
-    lastActivityAt,
-  };
-  await browser.storage.local.set({ [storageKey]: stored });
-}
-
-function scheduleSessionPersist(panel?: HTMLElement | null) {
-  if (sessionRestorePending) return;
-  if (persistTimerId) return;
-  persistTimerId = window.setTimeout(() => {
-    persistTimerId = null;
-    void saveSessionState(panel);
-  }, 500);
-}
-
-async function loadSessionState(userId: string, problemName: string) {
-  const storageKey = getSessionStorageKey(userId, problemName);
-  const stored = await browser.storage.local.get(storageKey);
-  const session =
-    (stored[storageKey] as StoredTutorSession | undefined) ?? null;
-  if (!session) return null;
-  const ageMs = Date.now() - (session.lastActivityAt ?? 0);
-  if (ageMs > SESSION_TTL_MS) {
-    await browser.storage.local.remove(storageKey);
-    return null;
-  }
-  return session;
-}
-
-async function clearSessionState(userId: string, problemName: string) {
-  const storageKey = getSessionStorageKey(userId, problemName);
-  await browser.storage.local.remove(storageKey);
-}
-
-async function cleanupExpiredSessions() {
-  const stored = await browser.storage.local.get(null);
-  const now = Date.now();
-  const toRemove: string[] = [];
-  for (const [key, value] of Object.entries(stored)) {
-    if (!key.startsWith(SESSION_KEY_PREFIX)) continue;
-    const session = value as StoredTutorSession | undefined;
-    const lastActivity = session?.lastActivityAt ?? 0;
-    if (now - lastActivity > SESSION_TTL_MS) {
-      toRemove.push(key);
-    }
-  }
-  if (toRemove.length > 0) {
-    await browser.storage.local.remove(toRemove);
-  }
-}
-
-function startSessionCleanupSweep() {
-  void cleanupExpiredSessions();
-  if (cleanupTimerId) {
-    window.clearInterval(cleanupTimerId);
-  }
-  cleanupTimerId = window.setInterval(() => {
-    void cleanupExpiredSessions();
-  }, SESSION_CLEANUP_INTERVAL_MS);
-}
-
-function isStoredSessionForUser(
-  stored: StoredTutorSession,
-  userId: string,
-): boolean {
-  if (!stored.state.userId) {
-    console.log("There was no stored user in the browser.");
-    return false;
-  }
-  if (stored.state.userId !== userId) {
-    console.log(
-      "The stored user earlier is different from the one logging in now.",
-    );
-    return false;
-  }
-  const canonicalUrl = getCanonicalProblemUrl(window.location.href); // this is not needed.
-  return stored.state.problemUrl === canonicalUrl;
-}
-
-function applyStoredSessionToPanel(
-  panel: HTMLElement,
-  stored: StoredTutorSession,
-) {
-  currentTutorSession = { ...stored.state, element: panel };
-  if (currentTutorSession && !currentTutorSession.language) {
-    currentTutorSession.language = getEditorLanguageFromPage();
-  }
-  if (
-    currentTutorSession &&
-    currentTutorSession.sessionTopicsInitialized == null
-  ) {
-    currentTutorSession.sessionTopicsInitialized = false;
-  }
-  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  if (contentArea) {
-    contentArea.innerHTML = stored.contentHtml || "";
-    requestAnimationFrame(() => {
-      contentArea.scrollTop = contentArea.scrollHeight;
-    });
-  }
-  const prompt = panel.querySelector<HTMLTextAreaElement>(
-    ".tutor-panel-prompt",
-  );
-  if (prompt) {
-    prompt.value = currentTutorSession.prompt ?? "";
-  }
-  if (currentTutorSession.position) {
-    panel.style.left = `${currentTutorSession.position.x}px`;
-    panel.style.top = `${currentTutorSession.position.y}px`;
-  }
-  if (currentTutorSession.size) {
-    panel.style.width = `${currentTutorSession.size.width}px`;
-    panel.style.height = `${currentTutorSession.size.height}px`;
-  }
-  const guideSlabs = panel.querySelectorAll<HTMLElement>(
-    ".guide-wrapper.guide-slab",
-  );
-  if (guideSlabs.length > 0) {
-    const guideSlab = guideSlabs[guideSlabs.length - 1];
-    const items = guideSlab.querySelectorAll(".guide-item");
-    guideMessageCount = items.length;
-    lastGuideMessageEl = guideSlab;
-    guideActiveSlab = currentTutorSession?.guideModeEnabled ? guideSlab : null;
-  } else {
-    const guideWrappers = panel.querySelectorAll(".guide-wrapper");
-    guideMessageCount = guideWrappers.length;
-    lastGuideMessageEl =
-      guideWrappers.length > 0
-        ? (guideWrappers[guideWrappers.length - 1] as HTMLElement)
-        : null;
-    guideActiveSlab = null;
-  }
-}
 
 function resetPanelForUser(
   panel: HTMLElement,
@@ -1862,52 +1348,32 @@ function resetPanelForUser(
   if (prompt) {
     prompt.value = "";
   }
-  currentTutorSession = buildFreshSession(panel, userId, problemName);
-  if (currentTutorSession) {
-    void initSessionTopicsIfNeeded(currentTutorSession);
+  state.currentTutorSession = buildFreshSession(panel, userId, problemName);
+  if (state.currentTutorSession) {
+    void initSessionTopicsIfNeeded(state.currentTutorSession);
   }
-}
-
-async function hydrateStoredSessionCache() {
-  const auth = await loadAuthFromStorage();
-  if (!auth?.userId) {
-    pendingStoredSession = null;
-    return;
-  }
-  const stored = await loadSessionState(auth.userId, getProblemTitleFromPage());
-  if (!stored) {
-    pendingStoredSession = null;
-    return;
-  }
-  if (!isStoredSessionForUser(stored, auth.userId)) {
-    await clearSessionState(auth.userId, stored.state.problem);
-    pendingStoredSession = null;
-    return;
-  }
-  pendingStoredSession = stored;
-  lastActivityAt = stored.lastActivityAt ?? Date.now();
 }
 
 function markUserActivity() {
-  lastActivityAt = Date.now();
-  if (Date.now() - lastActivityStoredAt > ACTIVITY_PERSIST_INTERVAL_MS) {
-    lastActivityStoredAt = Date.now();
+  state.lastActivityAt = Date.now();
+  if (Date.now() - state.lastActivityStoredAt > ACTIVITY_PERSIST_INTERVAL_MS) {
+    state.lastActivityStoredAt = Date.now();
     scheduleSessionPersist();
   }
 }
 
 async function logoutForInactivity() {
-  if (currentTutorSession?.element) {
-    await saveSessionState(currentTutorSession.element, { force: true });
-    sessionRestorePending = true;
+  if (state.currentTutorSession?.element) {
+    await saveSessionState(state.currentTutorSession.element, { force: true });
+    state.sessionRestorePending = true;
   }
   await clearAuthFromStorage();
-  if (currentTutorSession) {
-    currentTutorSession.guideModeEnabled = false;
-    currentTutorSession.checkModeEnabled = false;
+  if (state.currentTutorSession) {
+    state.currentTutorSession.guideModeEnabled = false;
+    state.currentTutorSession.checkModeEnabled = false;
   }
-  if (currentTutorSession?.element) {
-    const panel = currentTutorSession.element;
+  if (state.currentTutorSession?.element) {
+    const panel = state.currentTutorSession.element;
     detachGuideListeners();
     panel.classList.remove("guidemode-active", "checkmode-active");
     lockPanel(panel);
@@ -1921,11 +1387,11 @@ function setupActivityTracking() {
   for (const event of events) {
     document.addEventListener(event, handler, { passive: true });
   }
-  if (inactivityTimerId) {
-    window.clearInterval(inactivityTimerId);
+  if (state.inactivityTimerId) {
+    window.clearInterval(state.inactivityTimerId);
   }
-  inactivityTimerId = window.setInterval(async () => {
-    if (Date.now() - lastActivityAt < INACTIVITY_MS) return;
+  state.inactivityTimerId = window.setInterval(async () => {
+    if (Date.now() - state.lastActivityAt < INACTIVITY_MS) return;
     const auth = await loadAuthFromStorage();
     if (!auth?.userId) return;
     await logoutForInactivity();
@@ -1934,33 +1400,33 @@ function setupActivityTracking() {
 
 function resetGuideState() {
   // maybe we dont need to reset
-  guideMinIdx = Number.POSITIVE_INFINITY;
-  guideMaxIdx = -1;
-  guideBatchTimerId = null;
-  guideBatchStarted = false;
-  guideTouchedLines = new Set<number>();
-  maxLines = 0;
-  guideAttachAttempts = 0;
-  guideDrainInFlight = false;
-  lastGuideSelectionLine = null;
-  lastGuideFlushLine = null;
-  lastGuideFlushAt = 0;
-  guideMessageCount = 0;
-  lastGuideMessageEl = null;
-  guideActiveSlab = null;
+  state.guideMinIdx = Number.POSITIVE_INFINITY;
+  state.guideMaxIdx = -1;
+  state.guideBatchTimerId = null;
+  state.guideBatchStarted = false;
+  state.guideTouchedLines = new Set<number>();
+  state.maxLines = 0;
+  state.guideAttachAttempts = 0;
+  state.guideDrainInFlight = false;
+  state.lastGuideSelectionLine = null;
+  state.lastGuideFlushLine = null;
+  state.lastGuideFlushAt = 0;
+  state.guideMessageCount = 0;
+  state.lastGuideMessageEl = null;
+  state.guideActiveSlab = null;
 }
 
 function stopPanelOperations(panel: HTMLElement) {
-  queue = [];
-  flushInFlight = false;
+  state.queue = [];
+  state.flushInFlight = false;
   resetGuideState();
   detachGuideListeners();
   panel.querySelectorAll(".tutor-panel-assistant-loading").forEach((el) => {
     el.remove();
   });
-  if (currentTutorSession) {
-    currentTutorSession.guideModeEnabled = false;
-    currentTutorSession.checkModeEnabled = false;
+  if (state.currentTutorSession) {
+    state.currentTutorSession.guideModeEnabled = false;
+    state.currentTutorSession.checkModeEnabled = false;
   }
   panel.classList.remove("guidemode-active", "checkmode-active");
   panel.querySelector(".btn-guide-mode")?.classList.remove("is-loading");
@@ -2029,7 +1495,7 @@ function handleBackendError(
 ) {
   if (!isBackendErrorResponse(response)) return false;
   if (options?.silent) return true;
-  const target = panel ?? currentTutorSession?.element ?? null;
+  const target = panel ?? state.currentTutorSession?.element ?? null;
   if (!target) return true;
 
   if (
@@ -2040,10 +1506,10 @@ function handleBackendError(
   ) {
     lockPanel(target);
     ensureAuthPrompt(target, SESSION_EXPIRED_MESSAGE);
-    if (!isWindowOpen) {
+    if (!state.isWindowOpen) {
       showTutorPanel(target);
       hideWidget();
-      isWindowOpen = true;
+      state.isWindowOpen = true;
       markUserActivity();
       scheduleSessionPersist(target);
     }
@@ -2084,17 +1550,17 @@ function hidePanelLoading() {
 }
 
 async function handleProblemUrlChange(nextUrl: string) {
-  if (currentTutorSession?.userId && currentTutorSession.element) {
-    await saveSessionState(currentTutorSession.element, { force: true });
+  if (state.currentTutorSession?.userId && state.currentTutorSession.element) {
+    await saveSessionState(state.currentTutorSession.element, { force: true });
   }
-  pendingStoredSession = null;
+  state.pendingStoredSession = null;
   resetGuideState();
-  const wasOpen = isWindowOpen;
-  if (currentTutorSession?.element) {
-    currentTutorSession.element.remove();
+  const wasOpen = state.isWindowOpen;
+  if (state.currentTutorSession?.element) {
+    state.currentTutorSession.element.remove();
   }
-  currentTutorSession = null;
-  isWindowOpen = false;
+  state.currentTutorSession = null;
+  state.isWindowOpen = false;
   showWidget();
   await hydrateStoredSessionCache();
   if (wasOpen) {
@@ -2103,13 +1569,13 @@ async function handleProblemUrlChange(nextUrl: string) {
 }
 
 function startProblemUrlWatcher() {
-  if (problemUrlWatcherId) {
-    window.clearInterval(problemUrlWatcherId);
+  if (state.problemUrlWatcherId) {
+    window.clearInterval(state.problemUrlWatcherId);
   }
-  problemUrlWatcherId = window.setInterval(() => {
+  state.problemUrlWatcherId = window.setInterval(() => {
     const current = getCanonicalProblemUrl(window.location.href);
-    if (current !== lastCanonicalProblemUrl) {
-      lastCanonicalProblemUrl = current;
+    if (current !== state.lastCanonicalProblemUrl) {
+      state.lastCanonicalProblemUrl = current;
       void handleProblemUrlChange(current);
     }
   }, 1000);
@@ -2127,7 +1593,7 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
     }
     return;
   }
-  suspendPanelOps = true;
+  state.suspendPanelOps = true;
   stopPanelOperations(panel);
 
   const authBox = document.createElement("div");
@@ -2156,13 +1622,13 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
   };
 
   const applyAuthSuccess = async (userId: string) => {
-    const currentUserId = currentTutorSession?.userId ?? "";
+    const currentUserId = state.currentTutorSession?.userId ?? "";
     const problemName =
-      currentTutorSession?.problem ?? getProblemTitleFromPage();
-    suspendPanelOps = false;
+      state.currentTutorSession?.problem ?? getProblemTitleFromPage();
+    state.suspendPanelOps = false;
 
     if (currentUserId && currentUserId === userId) {
-      sessionRestorePending = false;
+      state.sessionRestorePending = false;
       unlockPanel(panel);
       authBox.remove();
       scheduleSessionPersist(panel);
@@ -2175,19 +1641,26 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
     }
 
     const stored = await loadSessionState(userId, problemName);
-    if (stored && isStoredSessionForUser(stored, userId)) {
+    if (
+      stored &&
+      isStoredSessionForUser(
+        stored,
+        userId,
+        getCanonicalProblemUrl(window.location.href),
+      )
+    ) {
       applyStoredSessionToPanel(panel, stored);
       await clearSessionState(userId, stored.state.problem);
-      pendingStoredSession = null;
+      state.pendingStoredSession = null;
     } else if (stored) {
       await clearSessionState(userId, stored.state.problem);
     }
 
-    if (currentTutorSession) {
-      currentTutorSession.userId = userId;
-      void initSessionTopicsIfNeeded(currentTutorSession);
+    if (state.currentTutorSession) {
+      state.currentTutorSession.userId = userId;
+      void initSessionTopicsIfNeeded(state.currentTutorSession);
     }
-    sessionRestorePending = false;
+    state.sessionRestorePending = false;
     unlockPanel(panel);
     authBox.remove();
     scheduleSessionPersist(panel);
@@ -2374,9 +1847,6 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
   renderLoginBox(message);
 }
 
-type PanelPosition = { x: number; y: number };
-type PanelSize = { width: number; height: number };
-
 function createTutorPanel() {
   // Optional safety: prevent duplicates
   document.getElementById("tutor-panel")?.remove();
@@ -2437,25 +1907,25 @@ function createTutorPanel() {
 
 function setupGloableMouseTracking() {}
 function closeTutorPanel() {
-  if (!currentTutorSession?.element) {
+  if (!state.currentTutorSession?.element) {
     return;
   }
-  hideTutorPanel(currentTutorSession.element);
-  positionWidgetFromPanel(currentTutorSession.element);
+  hideTutorPanel(state.currentTutorSession.element);
+  positionWidgetFromPanel(state.currentTutorSession.element);
   showWidget();
-  isWindowOpen = false;
-  scheduleSessionPersist(currentTutorSession.element);
+  state.isWindowOpen = false;
+  scheduleSessionPersist(state.currentTutorSession.element);
 }
 //function createTutorPanel() {}
 function highlightExistingPanel(session: HTMLElement) {}
 function hideWidget() {
-  if (widget) {
-    widget.style.display = "none";
+  if (state.widget) {
+    state.widget.style.display = "none";
   }
 }
 function showWidget() {
-  if (widget) {
-    widget.style.display = "block";
+  if (state.widget) {
+    state.widget.style.display = "block";
   }
 }
 function isWidgetVisible() {}
@@ -2464,20 +1934,6 @@ async function saveWidgetPosition() {}
 async function loadWidgetPosition() {}
 
 function handleTutorPanelActions() {}
-let guideMinIdx = Number.POSITIVE_INFINITY;
-let guideMaxIdx = -1;
-let guideBatchTimerId: number | null = null;
-let guideBatchStarted = false;
-let guideTouchedLines = new Set<number>();
-let maxLines = 0;
-let guideAttachAttempts = 0;
-let guideDrainInFlight = false;
-let lastGuideSelectionLine: number | null = null;
-let lastGuideFlushLine: number | null = null;
-let lastGuideFlushAt = 0;
-let guideMessageCount = 0;
-let lastGuideMessageEl: HTMLElement | null = null;
-let guideActiveSlab: HTMLElement | null = null;
 
 function guideMode() {}
 
@@ -2523,13 +1979,13 @@ function getFocusBlock(
 }
 
 function resetGuideBatch() {
-  guideTouchedLines.clear();
-  guideMinIdx = Number.POSITIVE_INFINITY;
-  guideMaxIdx = -1;
-  guideBatchStarted = false;
-  if (guideBatchTimerId !== null) {
-    window.clearTimeout(guideBatchTimerId);
-    guideBatchTimerId = null;
+  state.guideTouchedLines.clear();
+  state.guideMinIdx = Number.POSITIVE_INFINITY;
+  state.guideMaxIdx = -1;
+  state.guideBatchStarted = false;
+  if (state.guideBatchTimerId !== null) {
+    window.clearTimeout(state.guideBatchTimerId);
+    state.guideBatchTimerId = null;
   }
 }
 
@@ -2540,17 +1996,20 @@ async function flushGuideBatch(
   const fullCode = getCodeFromEditor(); // redundant
   const inputArea = getEditorInputArea();
   const inputAreaCode = inputArea?.value ?? "";
-  const lineNumber = Array.from(guideTouchedLines)[0] ?? 1;
+  const lineNumber = Array.from(state.guideTouchedLines)[0] ?? 1;
   if (!lineNumber) {
     resetGuideBatch();
     return;
   }
   const now = Date.now();
-  if (lastGuideFlushLine === lineNumber && now - lastGuideFlushAt < 250) {
+  if (
+    state.lastGuideFlushLine === lineNumber &&
+    now - state.lastGuideFlushAt < 250
+  ) {
     return;
   }
-  lastGuideFlushLine = lineNumber;
-  lastGuideFlushAt = now;
+  state.lastGuideFlushLine = lineNumber;
+  state.lastGuideFlushAt = now;
   //const focusBlock = inputArea.value ?? "";
   if (!fullCode) {
     // redundant
@@ -2581,7 +2040,7 @@ async function flushGuideBatch(
   if (!isValidFocusLine(focusLine)) {
     resetGuideBatch();
   } else {
-    queue.push([codeSoFar, focusLine]);
+    state.queue.push([codeSoFar, focusLine]);
     void drainGuideQueue();
 
     resetGuideBatch();
@@ -2613,44 +2072,45 @@ function getLineByNumber(code: string, lineNumber: number) {
 }
 
 async function drainGuideQueue() {
-  if (guideDrainInFlight) return;
-  if (suspendPanelOps) {
-    queue = [];
+  if (state.guideDrainInFlight) return;
+  if (state.suspendPanelOps) {
+    state.queue = [];
     return;
   }
-  guideDrainInFlight = true;
+  state.guideDrainInFlight = true;
   try {
-    while (queue.length > 0) {
-      if (suspendPanelOps) {
-        queue = [];
+    while (state.queue.length > 0) {
+      if (state.suspendPanelOps) {
+        state.queue = [];
         break;
       }
-      const [code, focusLine] = queue.shift()!;
+      const [code, focusLine] = state.queue.shift()!;
       console.log("This is the focus line: ", focusLine); // this is not the one, get the correct focus line
       console.log("the code so far: ", code);
       syncSessionLanguageFromPage();
-      flushInFlight = true;
+      state.flushInFlight = true;
       const resp = await browser.runtime.sendMessage({
         action: "guide-mode",
         payload: {
           action: "guide-mode",
-          sessionId: currentTutorSession?.sessionId ?? "",
-          problem: currentTutorSession?.problem ?? "",
-          topics: currentTutorSession?.topics,
+          sessionId: state.currentTutorSession?.sessionId ?? "",
+          problem: state.currentTutorSession?.problem ?? "",
+          topics: state.currentTutorSession?.topics,
           code,
           focusLine,
           language:
-            currentTutorSession?.language ?? getEditorLanguageFromPage(),
-          rollingStateGuideMode: currentTutorSession?.rollingStateGuideMode,
+            state.currentTutorSession?.language ?? getEditorLanguageFromPage(),
+          rollingStateGuideMode:
+            state.currentTutorSession?.rollingStateGuideMode,
         },
       });
       if (
-        handleBackendError(currentTutorSession?.element ?? null, resp, {
+        handleBackendError(state.currentTutorSession?.element ?? null, resp, {
           timeoutMessage:
             "Guide mode is taking longer than usual. Please try again.",
         })
       ) {
-        flushInFlight = false;
+        state.flushInFlight = false;
         continue;
       }
       if (!resp) {
@@ -2658,37 +2118,42 @@ async function drainGuideQueue() {
       } else {
         // Put this into a separate function
         const reply = resp.success ? resp.reply : null;
-        if (reply?.state_update?.lastEdit?.trim() && currentTutorSession) {
-          currentTutorSession.rollingStateGuideMode.lastEdit =
+        if (
+          reply?.state_update?.lastEdit?.trim() &&
+          state.currentTutorSession
+        ) {
+          state.currentTutorSession.rollingStateGuideMode.lastEdit =
             reply.state_update.lastEdit;
         }
         const nudge = reply?.nudge;
 
-        if (currentTutorSession && typeof nudge === "string") {
+        if (state.currentTutorSession && typeof nudge === "string") {
           const trimmedNudge = nudge.trim();
           if (trimmedNudge) {
-            currentTutorSession.rollingStateGuideMode.nudges.push(trimmedNudge);
-            currentTutorSession.content.push(`${trimmedNudge}\n`);
-            if (currentTutorSession.element != null) {
+            state.currentTutorSession.rollingStateGuideMode.nudges.push(
+              trimmedNudge,
+            );
+            state.currentTutorSession.content.push(`${trimmedNudge}\n`);
+            if (state.currentTutorSession.element != null) {
               await appendToContentPanel(
-                currentTutorSession.element,
+                state.currentTutorSession.element,
                 "",
                 "guideAssistant",
                 trimmedNudge,
               );
             }
-            scheduleSessionPersist(currentTutorSession.element ?? null);
+            scheduleSessionPersist(state.currentTutorSession.element ?? null);
           }
         }
 
         const topics = reply?.topics;
-        if (topics && typeof topics === "object" && currentTutorSession) {
+        if (topics && typeof topics === "object" && state.currentTutorSession) {
           for (const [topic, raw] of Object.entries(
             topics as Record<string, unknown>,
           )) {
             if (!raw || typeof raw !== "object") continue;
             const normalizedTopic = ensureTopicBucket(
-              currentTutorSession,
+              state.currentTutorSession.topics,
               topic,
             );
 
@@ -2708,27 +2173,27 @@ async function drainGuideQueue() {
                 ? [pitfalls.trim()]
                 : [];
 
-            if (!currentTutorSession) continue;
+            if (!state.currentTutorSession) continue;
             if (thoughtValues.length > 0) {
-              currentTutorSession.topics[
+              state.currentTutorSession.topics[
                 normalizedTopic
               ].thoughts_to_remember.push(...thoughtValues);
             }
             if (pitfallValues.length > 0) {
-              currentTutorSession.topics[normalizedTopic].pitfalls.push(
+              state.currentTutorSession.topics[normalizedTopic].pitfalls.push(
                 ...pitfallValues,
               );
             }
           }
         }
-        if (currentTutorSession?.element) {
-          scheduleSessionPersist(currentTutorSession.element);
+        if (state.currentTutorSession?.element) {
+          scheduleSessionPersist(state.currentTutorSession.element);
         }
-        flushInFlight = false;
+        state.flushInFlight = false;
       }
     }
   } finally {
-    guideDrainInFlight = false;
+    state.guideDrainInFlight = false;
   }
 }
 
@@ -2743,7 +2208,7 @@ function getCodeElementFullCode(): HTMLTextAreaElement | null {
 
 function onGuideInput() {
   // remove the event from here
-  if (!currentTutorSession?.guideModeEnabled) return;
+  if (!state.currentTutorSession?.guideModeEnabled) return;
   const inputArea = getEditorInputArea();
   // here, fetch the line number from the inputarea, write a separate function from getEditorInputArea
   if (!inputArea) return;
@@ -2753,40 +2218,49 @@ function onGuideInput() {
 
   const lineNumber = getLineNumberFromIndex(fullCode, cursorIdx);
   //maybeEnqueueEditedLine(event, lineNumber);
-  if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 0) {
-    guideTouchedLines.add(lineNumber);
+  if (
+    !state.guideTouchedLines.has(lineNumber) &&
+    state.guideTouchedLines.size == 0
+  ) {
+    state.guideTouchedLines.add(lineNumber);
   }
 
-  if (!guideBatchStarted) {
-    guideBatchStarted = true;
+  if (!state.guideBatchStarted) {
+    state.guideBatchStarted = true;
   }
-  if (guideBatchTimerId !== null) {
-    window.clearTimeout(guideBatchTimerId);
+  if (state.guideBatchTimerId !== null) {
+    window.clearTimeout(state.guideBatchTimerId);
   }
-  guideBatchTimerId = window.setTimeout(() => {
+  state.guideBatchTimerId = window.setTimeout(() => {
     flushGuideBatch("timer");
   }, 10000);
 
-  if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 1) {
+  if (
+    !state.guideTouchedLines.has(lineNumber) &&
+    state.guideTouchedLines.size == 1
+  ) {
     flushGuideBatch("threshold");
   }
 }
 
 function onGuideSelectionChange() {
-  if (!currentTutorSession?.guideModeEnabled) return;
-  if (!guideBatchStarted) return;
+  if (!state.currentTutorSession?.guideModeEnabled) return;
+  if (!state.guideBatchStarted) return;
   const inputArea = getEditorInputArea();
   if (!inputArea) return;
   const fullCode = inputArea.value ?? "";
   const cursorIdx = inputArea.selectionStart ?? 0;
   const lineNumber = getLineNumberFromIndex(fullCode, cursorIdx);
-  if (lastGuideSelectionLine === null) {
-    lastGuideSelectionLine = lineNumber;
+  if (state.lastGuideSelectionLine === null) {
+    state.lastGuideSelectionLine = lineNumber;
     return;
   }
-  if (lineNumber === lastGuideSelectionLine) return;
-  lastGuideSelectionLine = lineNumber;
-  if (!guideTouchedLines.has(lineNumber) && guideTouchedLines.size == 1) {
+  if (lineNumber === state.lastGuideSelectionLine) return;
+  state.lastGuideSelectionLine = lineNumber;
+  if (
+    !state.guideTouchedLines.has(lineNumber) &&
+    state.guideTouchedLines.size == 1
+  ) {
     flushGuideBatch("cursor-change");
   }
 }
@@ -2796,8 +2270,8 @@ function attachGuideListeners() {
   //console.log("this is the input line: ", inputArea);
 
   if (!inputArea) {
-    if (guideAttachAttempts < 5) {
-      guideAttachAttempts += 1;
+    if (state.guideAttachAttempts < 5) {
+      state.guideAttachAttempts += 1;
       window.setTimeout(attachGuideListeners, 500);
     }
     return;
@@ -2831,14 +2305,16 @@ function showAssistantLoading(panel: HTMLElement) {
 async function askAnything(panel: HTMLElement, query: string) {
   //console.log("this is the query asked: ", query);
   const loadingEl = showAssistantLoading(panel);
-  const language = currentTutorSession?.language || getEditorLanguageFromPage();
+  const language =
+    state.currentTutorSession?.language || getEditorLanguageFromPage();
   const response = await browser.runtime.sendMessage({
     action: "ask-anything",
     payload: {
-      sessionId: currentTutorSession?.sessionId ?? "",
+      sessionId: state.currentTutorSession?.sessionId ?? "",
       action: "ask-anything",
-      rollingHistory: currentTutorSession?.sessionRollingHistory.qaHistory,
-      summary: currentTutorSession?.sessionRollingHistory.summary ?? "",
+      rollingHistory:
+        state.currentTutorSession?.sessionRollingHistory.qaHistory,
+      summary: state.currentTutorSession?.sessionRollingHistory.summary ?? "",
       query: query,
       language,
     },
@@ -2867,9 +2343,9 @@ function sendChat() {}
 function minimizeWindow() {}
 
 function showTutorPanel(panel: HTMLElement) {
-  if (panelHideTimerId !== null) {
-    window.clearTimeout(panelHideTimerId);
-    panelHideTimerId = null;
+  if (state.panelHideTimerId !== null) {
+    window.clearTimeout(state.panelHideTimerId);
+    state.panelHideTimerId = null;
   }
   panel.classList.remove("closing");
   panel.style.display = "flex";
@@ -2879,22 +2355,22 @@ function showTutorPanel(panel: HTMLElement) {
 function hideTutorPanel(panel: HTMLElement) {
   panel.classList.remove("open");
   panel.classList.add("closing");
-  if (panelHideTimerId !== null) {
-    window.clearTimeout(panelHideTimerId);
+  if (state.panelHideTimerId !== null) {
+    window.clearTimeout(state.panelHideTimerId);
   }
-  panelHideTimerId = window.setTimeout(() => {
+  state.panelHideTimerId = window.setTimeout(() => {
     panel.style.display = "none";
     panel.classList.remove("closing");
-    panelHideTimerId = null;
+    state.panelHideTimerId = null;
   }, 180);
 }
 
 function positionWidgetFromPanel(panel: HTMLElement) {
-  if (!widget) {
+  if (!state.widget) {
     return;
   }
   const panelRect = panel.getBoundingClientRect();
-  const widgetRect = widget.getBoundingClientRect();
+  const widgetRect = state.widget.getBoundingClientRect();
   const widgetWidth = widgetRect.width || 50;
   const widgetHeight = widgetRect.height || 50;
 
@@ -2910,12 +2386,12 @@ function positionWidgetFromPanel(panel: HTMLElement) {
     ),
   );
 
-  widget.style.left = `${x}px`;
-  widget.style.top = `${y}px`;
-  widget.style.right = "auto";
-  widget.style.bottom = "auto";
-  widget.style.transform = "";
-  lastPosition = { x, y };
+  state.widget.style.left = `${x}px`;
+  state.widget.style.top = `${y}px`;
+  state.widget.style.right = "auto";
+  state.widget.style.bottom = "auto";
+  state.widget.style.transform = "";
+  state.lastPosition = { x, y };
   saveWidgetPosition();
 }
 
@@ -2927,157 +2403,6 @@ function getCodeFromEditor() {
   )?.innerText;
   //.lines-content.monaco-editor-background
   return codeText ?? "";
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function formatInlineMarkdown(text: string) {
-  const parts = text.split("`");
-  const renderInlineMarkup = (value: string) => {
-    const regex = /(\*\*[^*\n]+\*\*|'[^'\n]+')/g;
-    let result = "";
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(value)) !== null) {
-      result += escapeHtml(value.slice(lastIndex, match.index));
-      const token = match[1];
-      if (token.startsWith("**")) {
-        result += `<strong>${escapeHtml(token.slice(2, -2))}</strong>`;
-      } else {
-        result += `<code>${escapeHtml(token.slice(1, -1))}</code>`;
-      }
-      lastIndex = regex.lastIndex;
-    }
-    result += escapeHtml(value.slice(lastIndex));
-    return result;
-  };
-  return parts
-    .map((part, index) =>
-      index % 2 === 1
-        ? `<code>${escapeHtml(part)}</code>`
-        : renderInlineMarkup(part),
-    )
-    .join("");
-}
-
-function renderTextMarkdown(text: string) {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  let html = "";
-  let paragraph: string[] = [];
-  let listType: "ul" | "ol" | null = null;
-
-  const flushParagraph = () => {
-    if (paragraph.length === 0) return;
-    html += `<p>${formatInlineMarkdown(paragraph.join(" "))}</p>`;
-    paragraph = [];
-  };
-
-  const closeList = () => {
-    if (!listType) return;
-    html += `</${listType}>`;
-    listType = null;
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      flushParagraph();
-      closeList();
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
-      flushParagraph();
-      closeList();
-      const level = headingMatch[1].length;
-      html += `<h${level}>${formatInlineMarkdown(headingMatch[2])}</h${level}>`;
-      continue;
-    }
-
-    const orderedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
-    if (orderedMatch) {
-      flushParagraph();
-      if (listType && listType !== "ol") {
-        closeList();
-      }
-      if (!listType) {
-        listType = "ol";
-        html += "<ol>";
-      }
-      html += `<li>${formatInlineMarkdown(orderedMatch[2])}</li>`;
-      continue;
-    }
-
-    const unorderedMatch = trimmed.match(/^[-*]\s+(.*)$/);
-    if (unorderedMatch) {
-      flushParagraph();
-      if (listType && listType !== "ul") {
-        closeList();
-      }
-      if (!listType) {
-        listType = "ul";
-        html += "<ul>";
-      }
-      html += `<li>${formatInlineMarkdown(unorderedMatch[1])}</li>`;
-      continue;
-    }
-
-    paragraph.push(trimmed);
-  }
-
-  flushParagraph();
-  closeList();
-  return html;
-}
-
-function renderMarkdown(message: string) {
-  const normalized = message.replace(/\r\n/g, "\n");
-  const fenceCount = (normalized.match(/```/g) || []).length;
-  const guarded = fenceCount % 2 === 1 ? `${normalized}\n\`\`\`` : normalized;
-  const parts: { type: "text" | "code"; content: string; lang?: string }[] = [];
-  const fence = /```(\w+)?\r?\n([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = fence.exec(guarded)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({
-        type: "text",
-        content: guarded.slice(lastIndex, match.index),
-      });
-    }
-    parts.push({
-      type: "code",
-      content: match[2] ?? "",
-      lang: match[1] ?? "",
-    });
-    lastIndex = fence.lastIndex;
-  }
-  if (lastIndex < guarded.length) {
-    parts.push({ type: "text", content: guarded.slice(lastIndex) });
-  }
-
-  return parts
-    .map((part) => {
-      if (part.type === "code") {
-        const langAttr = part.lang
-          ? ` data-lang="${escapeHtml(part.lang)}"`
-          : "";
-        const preClass =
-          part.lang === "table" ? ` class="table-block"` : "";
-        return `<pre${preClass}><code${langAttr}>${escapeHtml(
-          part.content.trimEnd(),
-        )}</code></pre>`;
-      }
-      return renderTextMarkdown(part.content);
-    })
-    .join("");
 }
 
 function appendPanelMessage(
@@ -3228,18 +2553,18 @@ async function appendToContentPanel(
         render: renderMarkdown,
       });
       message.innerHTML = renderMarkdown(pretty);
-      currentTutorSession?.sessionRollingHistory.qaHistory.push(
+      state.currentTutorSession?.sessionRollingHistory.qaHistory.push(
         `Assitant: ${llm_response}`,
       );
-      if (currentTutorSession) {
-        maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      if (state.currentTutorSession) {
+        maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
       }
       content_area.scrollTop = message.offsetTop;
       scheduleSessionPersist(panel);
     } else if (role === "guideAssistant") {
       let wrapper =
-        guideActiveSlab && content_area.contains(guideActiveSlab)
-          ? guideActiveSlab
+        state.guideActiveSlab && content_area.contains(state.guideActiveSlab)
+          ? state.guideActiveSlab
           : null;
       if (!wrapper) {
         wrapper = document.createElement("div");
@@ -3248,7 +2573,7 @@ async function appendToContentPanel(
         list.className = "guide-list";
         wrapper.appendChild(list);
         content_area.appendChild(wrapper);
-        guideActiveSlab = wrapper;
+        state.guideActiveSlab = wrapper;
       }
 
       const list =
@@ -3263,22 +2588,22 @@ async function appendToContentPanel(
       item.className = "guide-item";
       list.appendChild(item);
 
-      if (guideMessageCount === 0) {
+      if (state.guideMessageCount === 0) {
         wrapper.classList.add("guide-start");
       }
-      guideMessageCount += 1;
-      lastGuideMessageEl = wrapper;
+      state.guideMessageCount += 1;
+      state.lastGuideMessageEl = wrapper;
 
       await typeMessage(item, content_area, pretty, {
         render: renderMarkdown,
       });
       item.innerHTML = renderMarkdown(pretty);
       content_area.scrollTop = wrapper.offsetTop;
-      // currentTutorSession?.sessionRollingHistory.qaHistory.push(
+      // state.currentTutorSession?.sessionRollingHistory.qaHistory.push(
       //   `Guide: ${llm_response}`,
       // );
-      // if (currentTutorSession) {
-      //   maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      // if (state.currentTutorSession) {
+      //   maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
       // }
       scheduleSessionPersist(panel);
     } else if (role === "checkAssistant") {
@@ -3300,11 +2625,11 @@ async function appendToContentPanel(
 
       wrapper.classList.add("check-end");
       content_area.scrollTop = wrapper.offsetTop;
-      currentTutorSession?.sessionRollingHistory.qaHistory.push(
+      state.currentTutorSession?.sessionRollingHistory.qaHistory.push(
         `Check: ${llm_response}`,
       );
-      if (currentTutorSession) {
-        maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      if (state.currentTutorSession) {
+        maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
       }
       scheduleSessionPersist(panel);
     }
@@ -3318,16 +2643,17 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
     const response = await browser.runtime.sendMessage({
       action: "check-code",
       payload: {
-        sessionId: currentTutorSession?.sessionId ?? "",
-        topics: currentTutorSession?.topics,
+        sessionId: state.currentTutorSession?.sessionId ?? "",
+        topics: state.currentTutorSession?.topics,
         code: writtenCode, // <-- raw string
         action: "check-code",
-        language: currentTutorSession?.language ?? getEditorLanguageFromPage(),
+        language:
+          state.currentTutorSession?.language ?? getEditorLanguageFromPage(),
         problem_no: getProblemNumberFromTitle(
-          currentTutorSession?.problem ?? "",
+          state.currentTutorSession?.problem ?? "",
         ),
-        problem_name: currentTutorSession?.problem ?? "",
-        problem_url: currentTutorSession?.problemUrl ?? "",
+        problem_name: state.currentTutorSession?.problem ?? "",
+        problem_url: state.currentTutorSession?.problemUrl ?? "",
       },
     });
     if (
@@ -3340,20 +2666,23 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
     }
     const response_llm = response?.resp;
     //const pretty = prettifyLlMResponse(response_llm);
-    if (currentTutorSession && typeof response_llm === "string") {
-      currentTutorSession.content.push(`${response_llm}\n`);
+    if (state.currentTutorSession && typeof response_llm === "string") {
+      state.currentTutorSession.content.push(`${response_llm}\n`);
     }
     if (typeof response_llm === "string" && response_llm.trim()) {
       await appendToContentPanel(panel, "", "checkAssistant", response_llm);
     }
 
     const topics = response?.topics;
-    if (topics && typeof topics === "object" && currentTutorSession) {
+    if (topics && typeof topics === "object" && state.currentTutorSession) {
       for (const [topic, raw] of Object.entries(
         topics as Record<string, unknown>,
       )) {
         if (!raw || typeof raw !== "object") continue;
-        const normalizedTopic = ensureTopicBucket(currentTutorSession, topic);
+        const normalizedTopic = ensureTopicBucket(
+          state.currentTutorSession.topics,
+          topic,
+        );
 
         const thoughts = (raw as { thoughts_to_remember?: unknown })
           .thoughts_to_remember;
@@ -3371,20 +2700,20 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
             ? [pitfalls.trim()]
             : [];
 
-        if (!currentTutorSession) continue;
+        if (!state.currentTutorSession) continue;
         if (thoughtValues.length > 0) {
-          currentTutorSession.topics[normalizedTopic].thoughts_to_remember.push(
-            ...thoughtValues,
-          );
+          state.currentTutorSession.topics[
+            normalizedTopic
+          ].thoughts_to_remember.push(...thoughtValues);
         }
         if (pitfallValues.length > 0) {
-          currentTutorSession.topics[normalizedTopic].pitfalls.push(
+          state.currentTutorSession.topics[normalizedTopic].pitfalls.push(
             ...pitfallValues,
           );
         }
       }
     }
-    console.log("this is the object now: ", currentTutorSession?.topics);
+    console.log("this is the object now: ", state.currentTutorSession?.topics);
     scheduleSessionPersist(panel);
     return response?.resp;
   } catch (error) {
@@ -3405,40 +2734,40 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   );
 
   guideMode?.addEventListener("click", () => {
-    if (!currentTutorSession) return;
+    if (!state.currentTutorSession) return;
 
-    currentTutorSession.guideModeEnabled =
-      !currentTutorSession.guideModeEnabled;
+    state.currentTutorSession.guideModeEnabled =
+      !state.currentTutorSession.guideModeEnabled;
 
     const guideModeButton = panel.querySelector<HTMLElement>(".btn-guide-mode");
-    if (currentTutorSession.userId) {
-      const problemName = currentTutorSession.problem;
+    if (state.currentTutorSession.userId) {
+      const problemName = state.currentTutorSession.problem;
       const problemNo = getProblemNumberFromTitle(problemName);
       void browser.runtime.sendMessage({
         action: "guide-mode-status",
         payload: {
-          enabled: currentTutorSession.guideModeEnabled,
-          sessionId: currentTutorSession.sessionId,
+          enabled: state.currentTutorSession.guideModeEnabled,
+          sessionId: state.currentTutorSession.sessionId,
           problem_no: problemNo,
           problem_name: problemName,
-          problem_url: currentTutorSession.problemUrl,
+          problem_url: state.currentTutorSession.problemUrl,
         },
       });
     }
     setPanelControlsDisabledGuide(panel, true);
     panel.classList.add("guidemode-active");
 
-    if (currentTutorSession.guideModeEnabled) {
+    if (state.currentTutorSession.guideModeEnabled) {
       //content_area?.classList.add("guide_start");
       guideModeButton?.classList.add("is-loading"); // #change this to is-active
-      guideMessageCount = 0;
-      lastGuideMessageEl = null;
-      guideActiveSlab = null;
+      state.guideMessageCount = 0;
+      state.lastGuideMessageEl = null;
+      state.guideActiveSlab = null;
       attachGuideListeners();
     } else {
       detachGuideListeners();
-      if (lastGuideMessageEl) {
-        lastGuideMessageEl.classList.add("guide-end");
+      if (state.lastGuideMessageEl) {
+        state.lastGuideMessageEl.classList.add("guide-end");
       }
       setPanelControlsDisabledGuide(panel, false);
       panel.classList.remove("guidemode-active");
@@ -3476,23 +2805,23 @@ function setupTutorPanelEvents(panel: HTMLElement) {
 
   sendQuestion?.addEventListener("click", async () => {
     syncSessionLanguageFromPage();
-    if (!currentTutorSession?.prompt) return highlightAskArea();
+    if (!state.currentTutorSession?.prompt) return highlightAskArea();
     else {
-      const toAsk = currentTutorSession.prompt;
+      const toAsk = state.currentTutorSession.prompt;
       if (prompt) {
         prompt.value = "";
       }
-      if (currentTutorSession) {
-        currentTutorSession.prompt = "";
+      if (state.currentTutorSession) {
+        state.currentTutorSession.prompt = "";
       }
       appendPanelMessage(panel, toAsk, "user");
-      currentTutorSession.sessionRollingHistory.qaHistory.push(
+      state.currentTutorSession.sessionRollingHistory.qaHistory.push(
         `user: ${toAsk}`,
       );
-      maybeQueueSummary(currentTutorSession.sessionRollingHistory);
+      maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
       scheduleSessionPersist(panel);
       const resp = await askAnything(panel, toAsk);
-      currentTutorSession.prompt = "";
+      state.currentTutorSession.prompt = "";
       scheduleSessionPersist(panel);
     }
   });
@@ -3507,8 +2836,8 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   checkModeClicked?.addEventListener("click", async () => {
     const checkModeButton = panel.querySelector<HTMLElement>(".btn-help-mode");
     let codeSoFar = "";
-    if (currentTutorSession) {
-      currentTutorSession.checkModeEnabled = true;
+    if (state.currentTutorSession) {
+      state.currentTutorSession.checkModeEnabled = true;
       checkModeButton?.classList.add("is-loading");
     }
     setPanelControlsDisabled(panel, true);
@@ -3518,7 +2847,11 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       const res = await browser.runtime.sendMessage({
         type: "GET_MONACO_CODE",
       }); // check this later
-      if (res?.ok && typeof res.code === "string" && currentTutorSession) {
+      if (
+        res?.ok &&
+        typeof res.code === "string" &&
+        state.currentTutorSession
+      ) {
         codeSoFar = res.code;
       }
       const resp = await checkMode(panel, codeSoFar);
@@ -3526,8 +2859,8 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     } catch {
       // Fallback to DOM-extracted code when background messaging fails.
     } finally {
-      if (currentTutorSession) {
-        currentTutorSession.checkModeEnabled = false;
+      if (state.currentTutorSession) {
+        state.currentTutorSession.checkModeEnabled = false;
         checkModeButton?.classList.remove("is-loading");
       }
       setPanelControlsDisabled(panel, false);
@@ -3537,8 +2870,8 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   });
 
   prompt?.addEventListener("input", () => {
-    if (currentTutorSession) {
-      currentTutorSession.prompt = prompt.value;
+    if (state.currentTutorSession) {
+      state.currentTutorSession.prompt = prompt.value;
     }
     scheduleSessionPersist(panel);
   });
@@ -3592,8 +2925,8 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     }
     panel.style.left = `${dragTargetX}px`;
     panel.style.top = `${dragTargetY}px`;
-    if (currentTutorSession) {
-      currentTutorSession.position = {
+    if (state.currentTutorSession) {
+      state.currentTutorSession.position = {
         x: panel.offsetLeft,
         y: panel.offsetTop,
       };
