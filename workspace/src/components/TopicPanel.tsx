@@ -1,4 +1,5 @@
 import InlineMarkdown from "@/components/InlineMarkdown";
+import { isMarkdownHeavy } from "@/lib/notesFormat";
 import { summaryToBullets } from "@/lib/text";
 import { TopicDetails } from "@/lib/types";
 import Link from "next/link";
@@ -88,6 +89,17 @@ function groupRowsByDate(
   }));
 }
 
+function renderNoteContent(text: string) {
+  if (isMarkdownHeavy(text)) {
+    return (
+      <pre className="rounded-lg bg-black/5 px-3 py-2 text-sm font-mono whitespace-pre-wrap">
+        <code>{text}</code>
+      </pre>
+    );
+  }
+  return <InlineMarkdown text={text} />;
+}
+
 function ProblemTimeline({
   rows,
 }: {
@@ -134,7 +146,7 @@ function ProblemTimeline({
                   <ul className="ml-5 list-disc text-black/70">
                     {problem.noteMade.length ? (
                       problem.noteMade.map((note, index) => (
-                        <li key={index}>{note}</li>
+                        <li key={index}>{renderNoteContent(note)}</li>
                       ))
                     ) : (
                       <li className="text-black/50">None</li>
@@ -146,7 +158,7 @@ function ProblemTimeline({
                   <ul className="ml-5 list-disc text-black/70">
                     {problem.pitfalls.length ? (
                       problem.pitfalls.map((pitfall, index) => (
-                        <li key={index}>{pitfall}</li>
+                        <li key={index}>{renderNoteContent(pitfall)}</li>
                       ))
                     ) : (
                       <li className="text-black/50">None</li>

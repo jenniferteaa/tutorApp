@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -67,6 +68,56 @@ def _format_guide_summary(acc: dict[str, dict[str, list[str]]]) -> str:
         total = len(thoughts) + len(pitfalls)
         lines.append(f"- {topic_name}: {total} notes")
     return "\n".join(lines)
+
+def _has_backticks(text: str) -> bool:
+    return "`" in text
+
+def _strip_surrounding_backticks(value: str) -> str:
+    return value.strip().strip("`").strip()
+
+_DASH_PATTERN = re.compile(r"\s[—–-]\s")
+
+def _wrap_thought(text: str) -> str:
+    match = _DASH_PATTERN.search(text)
+    if match:
+        head = _strip_surrounding_backticks(text[:match.start()])
+        tail = _strip_surrounding_backticks(text[match.end():])
+        if head and tail:
+            return f"`{head}` — {tail}"
+        if head:
+            return f"`{head}`"
+        return tail
+    if _has_backticks(text):
+        return text
+    return f"`{text.strip()}`" if text.strip() else text
+
+def _wrap_pitfall(text: str) -> str:
+    if _has_backticks(text):
+        return text
+    return f"`{text.strip()}`" if text.strip() else text
+
+def _wrap_topics_for_storage(
+    topics: dict[str, dict[str, list[str]]],
+) -> dict[str, dict[str, list[str]]]:
+    wrapped: dict[str, dict[str, list[str]]] = {}
+    for topic, payload in (topics or {}).items():
+        if not isinstance(payload, dict):
+            continue
+        thoughts = payload.get("thoughts_to_remember") or []
+        pitfalls = payload.get("pitfalls") or []
+        wrapped_thoughts = [
+            _wrap_thought(t) if isinstance(t, str) else t
+            for t in thoughts
+        ]
+        wrapped_pitfalls = [
+            _wrap_pitfall(p) if isinstance(p, str) else p
+            for p in pitfalls
+        ]
+        wrapped[topic] = {
+            "thoughts_to_remember": wrapped_thoughts,
+            "pitfalls": wrapped_pitfalls,
+        }
+    return wrapped
 
 def _topic_counts(topics: dict) -> tuple[int, int, int]:
     total_topics = len(topics) if isinstance(topics, dict) else 0
@@ -187,6 +238,15 @@ def requestingCodeCheck(
     A) "topics" is for TOPIC-SPECIFIC learnings only.
     - Every item you add must be clearly and directly about that topic’s concept.
     - You can add corrections to be made under "thoughts_to_remember" section of the respective topic
+    
+    TOPIC PAIR RULE (MANDATORY):
+    When adding any item to topics:
+        - Each pitfall must be a concrete wrong code fragment (prefer verbatim line from the user's code).
+        - Each thoughts_to_remember must be the corrected version + short note:
+        "<corrected_line_or_fragment> — <2 to 6 word note>"
+        - Do NOT add generic reminders or abstract principles.
+        - Prefer fewer, higher-signal pairs (max 3 pairs total across all topics).
+
 
     B) STRICT TOPIC ASSIGNMENT:
     - Add an item to a topic ONLY if the mistake/learning is fundamentally about that topic.
@@ -231,6 +291,8 @@ def requestingCodeCheck(
     - Inline code identifiers (class names, variables, methods) MUST be wrapped in single backticks (`).
     - Do NOT mix markdown styles.
     - Do NOT place code outside the "resp" string.
+    - Do NOT use Markdown table syntax (|, ---).
+    - Do NOT present information in rows or columns.
 
 
     If there are no NEW topic-specific items to add, return:
@@ -284,6 +346,10 @@ def requestingCodeCheck(
                 data["topics"] = deduped
         data["isSimilar"] = isSimilar
 
+        topics_for_storage = _wrap_topics_for_storage(
+            data.get("topics") or {}
+        )
+
         if session_id and user_id and problem_no and problem_name and problem_url:
             payload = {
                 "user_id": user_id,
@@ -291,7 +357,7 @@ def requestingCodeCheck(
                 "problem_no": problem_no,
                 "problem_name": problem_name,
                 "problem_url": problem_url,
-                "topics": data.get("topics") or {},
+                "topics": topics_for_storage,
                 "response_text": data.get("resp") or "",
                 "origin": "checkmode",
             }
@@ -452,6 +518,8 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         - NO multiple actions
         - NO next steps
         - NO formatting, NO markdown
+        - Do NOT use Markdown table syntax (|, ---).
+        - Do NOT present information in rows or columns.
 
         Corrected line rule:
         - If the issue is syntax/API/type related, include ONLY the corrected Focus line verbatim.
@@ -463,25 +531,44 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         - Must be attributable solely to the Focus line.
         - Must not mention future actions.
 
-        ────────────────────────
-        TOPICS OUTPUT RULES
+       ────────────────────────
+        TOPICS OUTPUT RULES (REVISED)
         ────────────────────────
 
-        Topics represent DURABLE, cross-problem learning — not local fixes.
+        Topics are a durable "mistake → correction" memory.
 
         Only when you output a NON-EMPTY nudge:
         - You MAY add topic updates.
 
-        Rules:
-        1) Use ONLY existing topic keys (DO NOT invent new topics).
-        2) Add entries ONLY for the affected topic.
-        3) Add EXACTLY:
-        - ONE pitfall (what was done wrong; include context)
-        - ONE thoughts_to_remember (general correction/principle)
-        4) Both must be single-line, concise, no explanations.
-        5) If nothing new, output topics:{}.
+        You must add EXACTLY ONE pair (1 pitfall + 1 thought) for the affected topic, IF it is new.
 
-        Do NOT add topics for one-off local mistakes.
+        PAIR FORMAT (MANDATORY):
+        A) pitfalls: store the student's WRONG Focus line verbatim.
+        - Must be EXACTLY the Focus line as provided (trim whitespace only).
+        - No extra commentary.
+        - No general statements (e.g., "Java is case-sensitive") allowed.
+
+        B) thoughts_to_remember: store the corrected line + a short note.
+        - Must be ONE LINE.
+        - Format exactly:
+        "<corrected_focus_line> — <2 to 6 word note>"
+        - The corrected_focus_line must be the fixed version of the Focus line ONLY.
+        - The note must be minimal (examples: "correct casing", "use .toString()", "fix method name", "fix type").
+
+        C) CODE FORMATTING RULE (MANDATORY):
+        - The code portion of BOTH pitfalls and thoughts_to_remember MUST be wrapped in single backticks (`).
+        - Only the code is wrapped in backticks — NOT the note text.
+        - Do NOT use triple backticks.
+        - Do NOT use Markdown tables or columns.
+
+
+        CONSTRAINTS:
+        1) Use ONLY existing topic keys (DO NOT invent new topics).
+        2) Add entries ONLY for the single most relevant topic.
+        3) If the fix cannot be expressed as ONE corrected line, do NOT add topics and do NOT speak.
+        4) If this pair already exists in any topic (either wrong line or corrected line meaning), return silent JSON.
+        5) Do NOT add “principles”, “rules”, or “reminders”. Only the pair.
+
 
         ────────────────────────
         OUTPUT FORMAT (MANDATORY)
@@ -574,6 +661,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
             if enabled:
                 topics_key = rkey("guide:topics", user_id, session_id)
                 incoming = data.get("topics") or {}
+                incoming = _wrap_topics_for_storage(incoming)
                 topics_count, thoughts_count, pitfalls_count = _topic_counts(incoming)
                 # print(
                 #     "guideModeAssist redis merge topics="
@@ -605,6 +693,10 @@ def answerAskanything(
     - A summarized context of earlier conversation windows (if provided)
     - The recent conversation history
     - The user's current question
+
+    Formatting rules:
+    - Do NOT use Markdown table syntax (|, ---).
+    - Do NOT present information in rows or columns.
 
     Use the summary only as background context.
     Prioritize the recent conversation history and the current question.
@@ -744,6 +836,8 @@ def summarize_topic_notes(notes: list[str], pitfalls: list[str]) -> dict[str, st
         - No headings.
         - No explanations.
         - No examples.
+        - Do NOT use Markdown table syntax (|, ---).
+        - Do NOT present information in rows or columns.
 
         OUTPUT
         Return ONLY valid JSON with exactly:
