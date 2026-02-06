@@ -70,8 +70,9 @@ export function createFloatingWidget() {
   style.textContent = `
   #tutor-widget{
   position: fixed;
-  bottom: 50vh;
-  right: 50px;
+  left: 0;
+  top: 0;
+  transform: translate(0px, 0px);
   z-index: 999999;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   user-select: none;
@@ -917,9 +918,7 @@ export function createFloatingWidget() {
       const constrainedPosition = constrainToBounds(newX, newY);
 
       // Use transform for smoother movement
-      state.widget!.style.transform = `translate(${constrainedPosition.x}px, ${constrainedPosition.y}px)`;
-      state.widget!.style.left = "0";
-      state.widget!.style.top = "0";
+      setWidgetXY(constrainedPosition.x, constrainedPosition.y);
 
       state.lastPosition = {
         x: constrainedPosition.x,
@@ -927,56 +926,34 @@ export function createFloatingWidget() {
       };
     }
   }
-
   function handleMouseUp() {
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
 
-    if (mainButton) {
-      mainButton.classList.remove("dragging");
-    }
+    mainButton?.classList.remove("dragging");
     document.body.style.cursor = "";
 
-    if (state.isDragging) {
+    if (state.isDragging && state.widget) {
       suppressClick = true;
-      // Apply edge snapping if widget is partially outside bounds
-      const snappedPosition = snapToNearestEdge(
+
+      const snapped = snapToNearestEdge(
         state.lastPosition.x,
         state.lastPosition.y,
       );
 
-      // Animate to snapped position if different from current position
-      if (
-        snappedPosition.x !== state.lastPosition.x ||
-        snappedPosition.y !== state.lastPosition.y
-      ) {
-        state.widget!.style.transition =
-          "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
-        state.widget!.style.left = snappedPosition.x + "px";
-        state.widget!.style.top = snappedPosition.y + "px";
-        state.widget!.style.transform = "";
+      // animate LEFT/TOP only
+      state.widget.style.transition =
+        "left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+      setWidgetXY(snapped.x, snapped.y);
 
-        // Remove transition after animation
-        setTimeout(() => {
-          if (state.widget) {
-            state.widget.style.transition = "";
-          }
-        }, 15000);
-
-        state.lastPosition = snappedPosition;
-      } else {
-        // Apply final position normally
-        state.widget!.style.left = state.lastPosition.x + "px";
-        state.widget!.style.top = state.lastPosition.y + "px";
-        state.widget!.style.transform = "";
-      }
+      window.setTimeout(() => {
+        if (state.widget) state.widget.style.transition = "";
+      }, 300);
 
       saveWidgetPosition();
     }
 
     state.isDragging = false;
-
-    // Reset drag tracking
     hasMovedWhileDragging = false;
   }
 }
@@ -1039,6 +1016,27 @@ export function createTutorPanel() {
   return panel;
 }
 
+function setWidgetXY(x: number, y: number) {
+  if (!state.widget) return;
+
+  // clamp
+  const w = state.widget.offsetWidth || 50;
+  const h = state.widget.offsetHeight || 50;
+  const cx = Math.max(0, Math.min(x, window.innerWidth - w));
+  const cy = Math.max(0, Math.min(y, window.innerHeight - h));
+
+  // always use left/top
+  state.widget.style.left = `${cx}px`;
+  state.widget.style.top = `${cy}px`;
+
+  // clear competing systems
+  state.widget.style.right = "auto";
+  state.widget.style.bottom = "auto";
+  state.widget.style.transform = "";
+
+  state.lastPosition = { x: cx, y: cy };
+}
+
 export function hideWidget() {
   if (state.widget) {
     state.widget.style.display = "none";
@@ -1079,18 +1077,17 @@ export function hideTutorPanel(panel: HTMLElement) {
 }
 
 export function positionWidgetFromPanel(panel: HTMLElement) {
-  if (!state.widget) {
-    return;
-  }
+  if (!state.widget) return;
+
   const panelRect = panel.getBoundingClientRect();
   const widgetRect = state.widget.getBoundingClientRect();
   const widgetWidth = widgetRect.width || 50;
   const widgetHeight = widgetRect.height || 50;
 
   const panelCenterX = panelRect.left + panelRect.width / 2;
-  const isLeftAnchor = panelCenterX <= window.innerWidth / 2;
-  const isRightAnchor = panelCenterX >= window.innerWidth / 2;
-  const x = isLeftAnchor ? 10 : window.innerWidth - widgetWidth - 10;
+  const anchorLeft = panelCenterX <= window.innerWidth / 2;
+
+  const x = anchorLeft ? 10 : window.innerWidth - widgetWidth - 10;
   const y = Math.max(
     10,
     Math.min(
@@ -1099,12 +1096,7 @@ export function positionWidgetFromPanel(panel: HTMLElement) {
     ),
   );
 
-  state.widget.style.left = `${x}px`;
-  state.widget.style.top = `${y}px`;
-  state.widget.style.right = "auto";
-  state.widget.style.bottom = "auto";
-  state.widget.style.transform = "";
-  state.lastPosition = { x, y };
+  setWidgetXY(x, y);
   saveWidgetPosition();
 }
 
