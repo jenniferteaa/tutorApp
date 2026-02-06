@@ -3,9 +3,21 @@
 import InlineMarkdown from "@/components/InlineMarkdown";
 import { useToast } from "@/components/ToastProvider";
 import TopicTile from "@/components/TopicTile";
+import { isMarkdownHeavy } from "@/lib/notesFormat";
 import { summaryToBullets } from "@/lib/text";
 import type { Topic, TopicDetails } from "@/lib/types";
 import { useState } from "react";
+
+function renderNoteContent(text: string) {
+  if (isMarkdownHeavy(text)) {
+    return (
+      <pre className="rounded-lg bg-black/5 px-3 py-2 text-sm font-mono whitespace-pre-wrap">
+        <code>{text}</code>
+      </pre>
+    );
+  }
+  return <InlineMarkdown text={text} />;
+}
 
 export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
   const [active, setActive] = useState<TopicDetails | null>(null);
@@ -373,7 +385,9 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                                   <ul className="ml-5 list-disc text-black/100 text-base">
                                     {latest.noteMade.length ? (
                                       latest.noteMade.map((note, noteIndex) => (
-                                        <li key={noteIndex}>{note}</li>
+                                        <li key={noteIndex}>
+                                          {renderNoteContent(note)}
+                                        </li>
                                       ))
                                     ) : (
                                       <li className="text-black/50">None</li>
@@ -391,7 +405,9 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                                     {latest.pitfalls.length ? (
                                       latest.pitfalls.map(
                                         (pitfall, pitIndex) => (
-                                          <li key={pitIndex}>{pitfall}</li>
+                                          <li key={pitIndex}>
+                                            {renderNoteContent(pitfall)}
+                                          </li>
                                         ),
                                       )
                                     ) : (
@@ -464,7 +480,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                                               attempt.noteMade.map(
                                                 (note, noteIndex) => (
                                                   <li key={noteIndex}>
-                                                    {note}
+                                                    {renderNoteContent(note)}
                                                   </li>
                                                 ),
                                               )
@@ -487,7 +503,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                                               attempt.pitfalls.map(
                                                 (pitfall, pitIndex) => (
                                                   <li key={pitIndex}>
-                                                    {pitfall}
+                                                    {renderNoteContent(pitfall)}
                                                   </li>
                                                 ),
                                               )

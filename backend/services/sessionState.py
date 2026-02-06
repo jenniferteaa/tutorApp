@@ -6,7 +6,7 @@ from services.dataProcessor import processingSimilarInputTopic
 from services.redisClient import get_json, rkey, set_json
 
 
-SESSION_STATE_TTL_SECONDS = int(os.getenv("SESSION_STATE_TTL_SECONDS", "57600"))
+SESSION_STATE_TTL_SECONDS = int(os.getenv("SESSION_STATE_TTL_SECONDS", "86400"))
 SESSION_STATE_PREFIX = "session:topics"
 DEFAULT_SIMILARITY_THRESHOLD = 0.70
 

@@ -128,6 +128,7 @@ function createFloatingWidget() {
   font-family: Calibri, sans-serif;
   font-size: 13px;
   color: #2F3B38;
+  font-weight: 500;
 
   transform: none;
   opacity: 0;
@@ -237,7 +238,7 @@ function createFloatingWidget() {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: rgba(93,106,102,0.6);
+  background: rgba(82, 99, 94, 0.9);
   animation: tutorPanelBlink 0.9s ease-in-out infinite;
 }
 
@@ -761,6 +762,9 @@ function createFloatingWidget() {
   font-size: 12px;
   line-height: 1.45;
 }
+.tutor-panel-message pre.table-block{
+  white-space: pre;
+}
 .tutor-panel-message pre code{
   background: transparent;
   padding: 0;
@@ -834,7 +838,7 @@ function createFloatingWidget() {
 function prettifyLlMResponse(text: string) {
   // Convert "To fix: a; b; c." into bullets
   const m = text.match(/([\s\S]*?)\bTo fix:\s*([\s\S]*)/i);
-  if (!m) return text;
+  if (!m) return wrapTableLikeBlocks(text);
 
   const before = m[1].trim();
   const fixesRaw = m[2].trim();
@@ -849,7 +853,57 @@ function prettifyLlMResponse(text: string) {
 
   const bulletBlock = fixes.map((f) => `- ${f.replace(/\.$/, "")}`).join("\n");
 
-  return `${before}\n\n**To fix**\n${bulletBlock}`;
+  const combined = `${before}\n\n**To fix**\n${bulletBlock}`;
+  return wrapTableLikeBlocks(combined);
+}
+
+function wrapTableLikeBlocks(text: string) {
+  const lines = text.split("\n");
+  const isSeparator = (line: string) =>
+    /^\s*\|?[-:\s|]+\|?\s*$/.test(line);
+  const isTableLine = (line: string) =>
+    (line.match(/\|/g)?.length ?? 0) >= 2;
+
+  let inCodeFence = false;
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim().startsWith("```")) {
+      inCodeFence = !inCodeFence;
+      out.push(line);
+      i += 1;
+      continue;
+    }
+    if (inCodeFence) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+
+    if (isTableLine(line) || isSeparator(line)) {
+      const block: string[] = [];
+      while (i < lines.length) {
+        const candidate = lines[i];
+        if (candidate.trim().startsWith("```")) break;
+        if (!(isTableLine(candidate) || isSeparator(candidate))) break;
+        block.push(candidate);
+        i += 1;
+      }
+      if (block.length > 0) {
+        out.push("```table");
+        out.push(...block);
+        out.push("```");
+      }
+      continue;
+    }
+
+    out.push(line);
+    i += 1;
+  }
+
+  return out.join("\n");
 }
 
 function setupWidgetEvents() {
@@ -1373,6 +1427,14 @@ async function openTutorPanel() {
     hideWidget();
     isWindowOpen = true;
     highlightExistingPanel(currentTutorSession.element);
+    const contentArea = currentTutorSession.element.querySelector<HTMLElement>(
+      ".tutor-panel-content",
+    );
+    if (contentArea) {
+      requestAnimationFrame(() => {
+        contentArea.scrollTop = contentArea.scrollHeight;
+      });
+    }
     if (!authUserId || authExpired) {
       lockPanel(currentTutorSession.element);
       ensureAuthPrompt(
@@ -1440,6 +1502,7 @@ async function openTutorPanel() {
   }
   currentTutorSession = buildFreshSession(tutorPanel, authUserId);
   ensureLanguageObserver();
+  syncSessionLanguageFromPage();
   showTutorPanel(tutorPanel);
   hideWidget();
   isWindowOpen = true;
@@ -1584,6 +1647,7 @@ type StoredTutorSession = {
   state: Omit<TutorSession, "element">;
   panelOpen: boolean;
   contentHtml: string;
+  contentScrollTop?: number;
   lastActivityAt: number;
 };
 
@@ -1648,6 +1712,7 @@ async function saveSessionState(
     },
     panelOpen: isWindowOpen,
     contentHtml: contentArea?.innerHTML ?? "",
+    contentScrollTop: contentArea?.scrollTop ?? 0,
     lastActivityAt,
   };
   await browser.storage.local.set({ [storageKey]: stored });
@@ -1743,6 +1808,9 @@ function applyStoredSessionToPanel(
   const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
   if (contentArea) {
     contentArea.innerHTML = stored.contentHtml || "";
+    requestAnimationFrame(() => {
+      contentArea.scrollTop = contentArea.scrollHeight;
+    });
   }
   const prompt = panel.querySelector<HTMLTextAreaElement>(
     ".tutor-panel-prompt",
@@ -2560,6 +2628,7 @@ async function drainGuideQueue() {
       const [code, focusLine] = queue.shift()!;
       console.log("This is the focus line: ", focusLine); // this is not the one, get the correct focus line
       console.log("the code so far: ", code);
+      syncSessionLanguageFromPage();
       flushInFlight = true;
       const resp = await browser.runtime.sendMessage({
         action: "guide-mode",
@@ -2599,21 +2668,17 @@ async function drainGuideQueue() {
           const trimmedNudge = nudge.trim();
           if (trimmedNudge) {
             currentTutorSession.rollingStateGuideMode.nudges.push(trimmedNudge);
+            currentTutorSession.content.push(`${trimmedNudge}\n`);
+            if (currentTutorSession.element != null) {
+              await appendToContentPanel(
+                currentTutorSession.element,
+                "",
+                "guideAssistant",
+                trimmedNudge,
+              );
+            }
+            scheduleSessionPersist(currentTutorSession.element ?? null);
           }
-          currentTutorSession.content.push(`${nudge}\n`);
-          if (currentTutorSession.element != null) {
-            //const pretty = prettifyLlMResponse(nudge);
-
-            await appendToContentPanel(
-              //but is it good to call a await inside of an already async function?
-              currentTutorSession.element,
-              "",
-              "guideAssistant",
-              nudge,
-            );
-          }
-          //await appendToContentPanel(panel, "", "assistant", nudge);
-          scheduleSessionPersist(currentTutorSession.element ?? null);
         }
 
         const topics = reply?.topics;
@@ -2974,15 +3039,17 @@ function renderTextMarkdown(text: string) {
 
 function renderMarkdown(message: string) {
   const normalized = message.replace(/\r\n/g, "\n");
+  const fenceCount = (normalized.match(/```/g) || []).length;
+  const guarded = fenceCount % 2 === 1 ? `${normalized}\n\`\`\`` : normalized;
   const parts: { type: "text" | "code"; content: string; lang?: string }[] = [];
   const fence = /```(\w+)?\r?\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = fence.exec(normalized)) !== null) {
+  while ((match = fence.exec(guarded)) !== null) {
     if (match.index > lastIndex) {
       parts.push({
         type: "text",
-        content: normalized.slice(lastIndex, match.index),
+        content: guarded.slice(lastIndex, match.index),
       });
     }
     parts.push({
@@ -2992,15 +3059,19 @@ function renderMarkdown(message: string) {
     });
     lastIndex = fence.lastIndex;
   }
-  if (lastIndex < normalized.length) {
-    parts.push({ type: "text", content: normalized.slice(lastIndex) });
+  if (lastIndex < guarded.length) {
+    parts.push({ type: "text", content: guarded.slice(lastIndex) });
   }
 
   return parts
     .map((part) => {
       if (part.type === "code") {
-        const lang = part.lang ? ` data-lang="${escapeHtml(part.lang)}"` : "";
-        return `<pre><code${lang}>${escapeHtml(
+        const langAttr = part.lang
+          ? ` data-lang="${escapeHtml(part.lang)}"`
+          : "";
+        const preClass =
+          part.lang === "table" ? ` class="table-block"` : "";
+        return `<pre${preClass}><code${langAttr}>${escapeHtml(
           part.content.trimEnd(),
         )}</code></pre>`;
       }
@@ -3243,6 +3314,7 @@ async function appendToContentPanel(
 async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
   //console.log("this is the code written so far: ", writtenCode);
   try {
+    syncSessionLanguageFromPage();
     const response = await browser.runtime.sendMessage({
       action: "check-code",
       payload: {
@@ -3396,7 +3468,14 @@ function setupTutorPanelEvents(panel: HTMLElement) {
   const sendQuestion =
     panel.querySelector<HTMLButtonElement>(".tutor-panel-send");
 
+  prompt?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    sendQuestion?.click();
+  });
+
   sendQuestion?.addEventListener("click", async () => {
+    syncSessionLanguageFromPage();
     if (!currentTutorSession?.prompt) return highlightAskArea();
     else {
       const toAsk = currentTutorSession.prompt;
