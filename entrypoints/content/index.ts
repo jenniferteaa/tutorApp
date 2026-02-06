@@ -6,7 +6,18 @@ import {
   getProblemTitleFromPage,
   getRollingTopicsFromPage,
 } from "./leetcode";
-import { prettifyLlMResponse, renderMarkdown } from "./ui/render";
+import {
+  sendAskAnything,
+  sendCheckCode,
+  sendGetMonacoCode,
+  sendGoToWorkspace,
+  sendGuideMode,
+  sendGuideModeStatus,
+  sendInitSessionTopics,
+  sendSummarizeHistory,
+  sendSupabaseLogin,
+  sendSupabaseSignup,
+} from "./messaging";
 import {
   applyStoredSessionToPanel,
   clearAuthFromStorage,
@@ -20,7 +31,12 @@ import {
   scheduleSessionPersist,
   startSessionCleanupSweep,
 } from "./session/storage";
-import { state, type SessionRollingHistoryLLM, type TutorSession } from "./state";
+import {
+  state,
+  type SessionRollingHistoryLLM,
+  type TutorSession,
+} from "./state";
+import { prettifyLlMResponse, renderMarkdown } from "./ui/render";
 
 export default defineContentScript({
   matches: ["https://leetcode.com/problems/*"],
@@ -1277,13 +1293,10 @@ async function requestHistorySummary(history: SessionRollingHistoryLLM) {
   const summarizeBatch = history.toSummarize.splice(0);
   state.summarizeInFlight = true;
   try {
-    const response = await browser.runtime.sendMessage({
-      action: "summarize-history",
-      payload: {
-        sessionId: state.currentTutorSession?.sessionId ?? "",
-        summarize: summarizeBatch,
-        summary: history.summary,
-      },
+    const response = await sendSummarizeHistory({
+      sessionId: state.currentTutorSession?.sessionId ?? "",
+      summarize: summarizeBatch,
+      summary: history.summary,
     });
     if (
       handleBackendError(state.currentTutorSession?.element ?? null, response, {
@@ -1312,12 +1325,9 @@ function maybeQueueSummary(history: SessionRollingHistoryLLM) {
 async function initSessionTopicsIfNeeded(session: TutorSession) {
   if (session.sessionTopicsInitialized) return;
   if (!session.userId) return;
-  const resp = await browser.runtime.sendMessage({
-    action: "init-session-topics",
-    payload: {
-      sessionId: session.sessionId,
-      topics: session.topics,
-    },
+  const resp = await sendInitSessionTopics({
+    sessionId: session.sessionId,
+    topics: session.topics,
   });
   if (resp?.success) {
     session.sessionTopicsInitialized = true;
@@ -1711,10 +1721,7 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
       const email = emailInput?.value.trim() ?? "";
       const password = passwordInput?.value.trim() ?? "";
       if (!email || !password) return;
-      const resp = await browser.runtime.sendMessage({
-        action: "supabase-login",
-        payload: { email, password },
-      });
+      const resp = await sendSupabaseLogin({ email, password });
       if (resp?.success === false) {
         if (errorBox) {
           errorBox.textContent = resp.error || "Internal server error";
@@ -1818,10 +1825,7 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
         }
         return;
       }
-      const resp = await browser.runtime.sendMessage({
-        action: "supabase-signup",
-        payload: { fname, lname, email, password },
-      });
+      const resp = await sendSupabaseSignup({ fname, lname, email, password });
       if (resp?.success === false) {
         if (errorBox) {
           errorBox.textContent = resp.error || "Internal server error";
@@ -2030,7 +2034,7 @@ async function flushGuideBatch(
 
   let codeSoFar = fullCode;
   try {
-    const res = await browser.runtime.sendMessage({ type: "GET_MONACO_CODE" });
+    const res = await sendGetMonacoCode();
     if (res?.ok && typeof res.code === "string") {
       codeSoFar = res.code;
     }
@@ -2089,20 +2093,16 @@ async function drainGuideQueue() {
       console.log("the code so far: ", code);
       syncSessionLanguageFromPage();
       state.flushInFlight = true;
-      const resp = await browser.runtime.sendMessage({
+      const resp = await sendGuideMode({
         action: "guide-mode",
-        payload: {
-          action: "guide-mode",
-          sessionId: state.currentTutorSession?.sessionId ?? "",
-          problem: state.currentTutorSession?.problem ?? "",
-          topics: state.currentTutorSession?.topics,
-          code,
-          focusLine,
-          language:
-            state.currentTutorSession?.language ?? getEditorLanguageFromPage(),
-          rollingStateGuideMode:
-            state.currentTutorSession?.rollingStateGuideMode,
-        },
+        sessionId: state.currentTutorSession?.sessionId ?? "",
+        problem: state.currentTutorSession?.problem ?? "",
+        topics: state.currentTutorSession?.topics,
+        code,
+        focusLine,
+        language:
+          state.currentTutorSession?.language ?? getEditorLanguageFromPage(),
+        rollingStateGuideMode: state.currentTutorSession?.rollingStateGuideMode,
       });
       if (
         handleBackendError(state.currentTutorSession?.element ?? null, resp, {
@@ -2307,17 +2307,13 @@ async function askAnything(panel: HTMLElement, query: string) {
   const loadingEl = showAssistantLoading(panel);
   const language =
     state.currentTutorSession?.language || getEditorLanguageFromPage();
-  const response = await browser.runtime.sendMessage({
+  const response = await sendAskAnything({
+    sessionId: state.currentTutorSession?.sessionId ?? "",
     action: "ask-anything",
-    payload: {
-      sessionId: state.currentTutorSession?.sessionId ?? "",
-      action: "ask-anything",
-      rollingHistory:
-        state.currentTutorSession?.sessionRollingHistory.qaHistory,
-      summary: state.currentTutorSession?.sessionRollingHistory.summary ?? "",
-      query: query,
-      language,
-    },
+    rollingHistory: state.currentTutorSession?.sessionRollingHistory.qaHistory,
+    summary: state.currentTutorSession?.sessionRollingHistory.summary ?? "",
+    query: query,
+    language,
   });
   if (
     handleBackendError(panel, response, {
@@ -2338,9 +2334,6 @@ async function askAnything(panel: HTMLElement, query: string) {
   if (!reply) return "Failure";
   return reply;
 }
-
-function sendChat() {}
-function minimizeWindow() {}
 
 function showTutorPanel(panel: HTMLElement) {
   if (state.panelHideTimerId !== null) {
@@ -2640,21 +2633,18 @@ async function checkMode(panel: HTMLElement, writtenCode: string | unknown) {
   //console.log("this is the code written so far: ", writtenCode);
   try {
     syncSessionLanguageFromPage();
-    const response = await browser.runtime.sendMessage({
+    const response = await sendCheckCode({
+      sessionId: state.currentTutorSession?.sessionId ?? "",
+      topics: state.currentTutorSession?.topics,
+      code: writtenCode, // <-- raw string
       action: "check-code",
-      payload: {
-        sessionId: state.currentTutorSession?.sessionId ?? "",
-        topics: state.currentTutorSession?.topics,
-        code: writtenCode, // <-- raw string
-        action: "check-code",
-        language:
-          state.currentTutorSession?.language ?? getEditorLanguageFromPage(),
-        problem_no: getProblemNumberFromTitle(
-          state.currentTutorSession?.problem ?? "",
-        ),
-        problem_name: state.currentTutorSession?.problem ?? "",
-        problem_url: state.currentTutorSession?.problemUrl ?? "",
-      },
+      language:
+        state.currentTutorSession?.language ?? getEditorLanguageFromPage(),
+      problem_no: getProblemNumberFromTitle(
+        state.currentTutorSession?.problem ?? "",
+      ),
+      problem_name: state.currentTutorSession?.problem ?? "",
+      problem_url: state.currentTutorSession?.problemUrl ?? "",
     });
     if (
       handleBackendError(panel, response, {
@@ -2743,15 +2733,12 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     if (state.currentTutorSession.userId) {
       const problemName = state.currentTutorSession.problem;
       const problemNo = getProblemNumberFromTitle(problemName);
-      void browser.runtime.sendMessage({
-        action: "guide-mode-status",
-        payload: {
-          enabled: state.currentTutorSession.guideModeEnabled,
-          sessionId: state.currentTutorSession.sessionId,
-          problem_no: problemNo,
-          problem_name: problemName,
-          problem_url: state.currentTutorSession.problemUrl,
-        },
+      void sendGuideModeStatus({
+        enabled: state.currentTutorSession.guideModeEnabled,
+        sessionId: state.currentTutorSession.sessionId,
+        problem_no: problemNo,
+        problem_name: problemName,
+        problem_url: state.currentTutorSession.problemUrl,
       });
     }
     setPanelControlsDisabledGuide(panel, true);
@@ -2781,10 +2768,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       console.warn("Workspace URL is not set.");
       return;
     }
-    const resp = await browser.runtime.sendMessage({
-      action: "go-to-workspace",
-      payload: { url: WORKSPACE_URL },
-    });
+    const resp = await sendGoToWorkspace({ url: WORKSPACE_URL });
     handleBackendError(panel, resp, {
       serverMessage: "Unable to open workspace right now.",
       lockOnServerError: false,
@@ -2844,9 +2828,7 @@ function setupTutorPanelEvents(panel: HTMLElement) {
     panel.classList.add("checkmode-active");
 
     try {
-      const res = await browser.runtime.sendMessage({
-        type: "GET_MONACO_CODE",
-      }); // check this later
+      const res = await sendGetMonacoCode(); // check this later
       if (
         res?.ok &&
         typeof res.code === "string" &&
