@@ -6,8 +6,28 @@ import {
   sendGoToWorkspace,
   sendGuideModeStatus,
 } from "../messaging";
-import { state } from "../state";
+import { state, type SessionRollingHistoryLLM } from "../state";
 import { getWidgetDeps } from "./widget";
+import { prettifyLlMResponse, renderMarkdown } from "./render";
+import { appendPanelMessage, typeMessage } from "./messages";
+
+type PanelDeps = {
+  maybeQueueSummary: (history: SessionRollingHistoryLLM) => void;
+  scheduleSessionPersist: (panel?: HTMLElement | null) => void;
+};
+
+let panelDeps: PanelDeps | null = null;
+
+export function configurePanel(next: PanelDeps) {
+  panelDeps = next;
+}
+
+function getPanelDeps(): PanelDeps {
+  if (!panelDeps) {
+    throw new Error("Panel dependencies not configured");
+  }
+  return panelDeps;
+}
 
 export function createTutorPanel() {
   // Optional safety: prevent duplicates
@@ -135,6 +155,106 @@ export function setPanelControlsDisabled(panel: HTMLElement, disabled: boolean) 
       continue;
     }
     element.setAttribute("aria-disabled", disabled ? "true" : "false");
+  }
+}
+
+export async function appendToContentPanel(
+  panel: HTMLElement,
+  some: string,
+  role: string,
+  llm_response: string,
+) {
+  const { maybeQueueSummary, scheduleSessionPersist } = getPanelDeps();
+  const pretty = prettifyLlMResponse(llm_response);
+  const content_area = panel.querySelector<HTMLElement>(".tutor-panel-content");
+  if (content_area && typeof llm_response === "string") {
+    if (role === "assistant") {
+      const message = appendPanelMessage(panel, "", "assistant");
+      if (!message) return;
+      await typeMessage(message, content_area, pretty, {
+        render: renderMarkdown,
+      });
+      message.innerHTML = renderMarkdown(pretty);
+      state.currentTutorSession?.sessionRollingHistory.qaHistory.push(
+        `Assitant: ${llm_response}`,
+      );
+      if (state.currentTutorSession) {
+        maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
+      }
+      content_area.scrollTop = message.offsetTop;
+      scheduleSessionPersist(panel);
+    } else if (role === "guideAssistant") {
+      let wrapper =
+        state.guideActiveSlab && content_area.contains(state.guideActiveSlab)
+          ? state.guideActiveSlab
+          : null;
+      if (!wrapper) {
+        wrapper = document.createElement("div");
+        wrapper.className = "guide-wrapper guide-slab";
+        const list = document.createElement("ul");
+        list.className = "guide-list";
+        wrapper.appendChild(list);
+        content_area.appendChild(wrapper);
+        state.guideActiveSlab = wrapper;
+      }
+
+      const list =
+        wrapper.querySelector<HTMLUListElement>(".guide-list") ??
+        document.createElement("ul");
+      if (!list.classList.contains("guide-list")) {
+        list.className = "guide-list";
+        wrapper.appendChild(list);
+      }
+
+      const item = document.createElement("li");
+      item.className = "guide-item";
+      list.appendChild(item);
+
+      if (state.guideMessageCount === 0) {
+        wrapper.classList.add("guide-start");
+      }
+      state.guideMessageCount += 1;
+      state.lastGuideMessageEl = wrapper;
+
+      await typeMessage(item, content_area, pretty, {
+        render: renderMarkdown,
+      });
+      item.innerHTML = renderMarkdown(pretty);
+      content_area.scrollTop = wrapper.offsetTop;
+      // state.currentTutorSession?.sessionRollingHistory.qaHistory.push(
+      //   `Guide: ${llm_response}`,
+      // );
+      // if (state.currentTutorSession) {
+      //   maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
+      // }
+      scheduleSessionPersist(panel);
+    } else if (role === "checkAssistant") {
+      const wrapper = appendPanelMessage(panel, "", "checkAssistant");
+      if (!wrapper) return;
+
+      const bubble = wrapper.querySelector<HTMLElement>(
+        ".tutor-panel-message--checkAssistant",
+      );
+      if (!bubble) return;
+
+      // checkmode is one chunk → start + end immediately
+      wrapper.classList.add("check-start");
+
+      await typeMessage(bubble, content_area, pretty, {
+        render: renderMarkdown,
+      });
+      bubble.innerHTML = renderMarkdown(pretty);
+
+      wrapper.classList.add("check-end");
+      content_area.scrollTop = wrapper.offsetTop;
+      state.currentTutorSession?.sessionRollingHistory.qaHistory.push(
+        `Check: ${llm_response}`,
+      );
+      if (state.currentTutorSession) {
+        maybeQueueSummary(state.currentTutorSession.sessionRollingHistory);
+      }
+      scheduleSessionPersist(panel);
+    }
   }
 }
 
