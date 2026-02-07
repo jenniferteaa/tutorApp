@@ -33,15 +33,17 @@ import {
 } from "./state";
 import { prettifyLlMResponse, renderMarkdown } from "./ui/render";
 import {
-  configureWidget,
-  createFloatingWidget,
   createTutorPanel,
   hideTutorPanel,
+  setPanelControlsDisabled,
+  showTutorPanel,
+} from "./ui/panel";
+import {
+  configureWidget,
+  createFloatingWidget,
   hideWidget,
   loadWidgetPosition,
   positionWidgetFromPanel,
-  setPanelControlsDisabled,
-  showTutorPanel,
   showWidget,
 } from "./ui/widget";
 
@@ -875,7 +877,6 @@ function ensureAuthPrompt(panel: HTMLElement, message?: string) {
   renderLoginBox(message);
 }
 
-function setupGloableMouseTracking() {}
 function closeTutorPanel() {
   if (!state.currentTutorSession?.element) {
     return;
@@ -887,7 +888,7 @@ function closeTutorPanel() {
   scheduleSessionPersist(state.currentTutorSession.element);
 }
 function highlightExistingPanel(session: HTMLElement) {}
-function isWidgetVisible() {}
+
 function setupMessageListener() {}
 
 function handleTutorPanelActions() {}

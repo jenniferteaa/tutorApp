@@ -307,7 +307,7 @@ def requestingCodeCheck(
     Code:
     {code}
 
-    programming language: 
+    programming language:
     {language_line}
 
     Topics (JSON — keys are fixed, values contain existing notes):
