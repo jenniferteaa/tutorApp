@@ -62,10 +62,7 @@ export async function supabaseLogin(payload: {
   await setAuthState(auth);
   return {
     success: true,
-    token: auth.jwt,
-    userId: auth.userId,
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken,
+    ...auth,
   };
 }
 
