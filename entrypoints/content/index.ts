@@ -41,6 +41,14 @@ import {
   hideWidget,
   loadWidgetPosition,
 } from "./ui/widget";
+import {
+  configureErrors,
+  handleBackendError,
+  hidePanelLoading,
+  lockPanel,
+  showPanelLoading,
+  unlockPanel,
+} from "./net/errors";
 
 export default defineContentScript({
   matches: ["https://leetcode.com/problems/*"],
@@ -75,6 +83,15 @@ function initializeWidget() {
     scheduleSessionPersist,
     syncSessionLanguageFromPage,
     handleBackendError,
+  });
+  configureErrors({
+    ensureAuthPrompt,
+    showTutorPanel,
+    hideWidget,
+    markUserActivity,
+    scheduleSessionPersist,
+    appendPanelMessage,
+    setPanelControlsDisabled,
   });
   configureActivity({
     lockPanel,
@@ -165,122 +182,6 @@ function maybeQueueSummary(history: SessionRollingHistoryLLM) {
 const WORKSPACE_URL = "http://localhost:3000/auth/bridge";
 
 // const WORKSPACE_URL = ""; // TODO: paste workspace auth-bridge URL here
-function lockPanel(panel: HTMLElement) {
-  panel.classList.add("tutor-panel-locked");
-  setPanelControlsDisabled(panel, true);
-}
-
-function unlockPanel(panel: HTMLElement) {
-  panel.classList.remove("tutor-panel-locked");
-  setPanelControlsDisabled(panel, false);
-}
-
-type BackendErrorResponse = {
-  success: false;
-  error?: string;
-  status?: number;
-  timeout?: boolean;
-  unauthorized?: boolean;
-};
-
-const SESSION_EXPIRED_MESSAGE = "session expired, please log back in";
-
-function isBackendErrorResponse(value: unknown): value is BackendErrorResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { success?: unknown }).success === false
-  );
-}
-
-function removeSessionExpiredMessage(panel: HTMLElement) {
-  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  if (!contentArea) return;
-  const messages = contentArea.querySelectorAll<HTMLElement>(
-    ".tutor-panel-message--assistant",
-  );
-  messages.forEach((message) => {
-    if (message.textContent?.trim() === SESSION_EXPIRED_MESSAGE) {
-      message.remove();
-    }
-  });
-}
-
-function appendSystemMessage(panel: HTMLElement, message: string) {
-  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  if (!contentArea) return;
-  const messageEl = appendPanelMessage(panel, message, "assistant");
-  if (!messageEl) return;
-  contentArea.scrollTop = messageEl.offsetTop;
-  scheduleSessionPersist(panel);
-}
-
-function handleBackendError(
-  panel: HTMLElement | null,
-  response: unknown,
-  options?: {
-    timeoutMessage?: string;
-    serverMessage?: string;
-    lockOnServerError?: boolean;
-    silent?: boolean;
-  },
-) {
-  if (!isBackendErrorResponse(response)) return false;
-  if (options?.silent) return true;
-  const target = panel ?? state.currentTutorSession?.element ?? null;
-  if (!target) return true;
-
-  if (
-    response.unauthorized ||
-    response.status === 401 ||
-    response.status === 403 ||
-    (response.error && /unauthorized/i.test(response.error))
-  ) {
-    lockPanel(target);
-    ensureAuthPrompt(target, SESSION_EXPIRED_MESSAGE);
-    if (!state.isWindowOpen) {
-      showTutorPanel(target);
-      hideWidget();
-      state.isWindowOpen = true;
-      markUserActivity();
-      scheduleSessionPersist(target);
-    }
-    removeSessionExpiredMessage(target);
-    return true;
-  }
-
-  if (response.timeout) {
-    appendSystemMessage(
-      target,
-      options?.timeoutMessage ??
-        "The model is taking longer than usual. Please try again.",
-    );
-    return true;
-  }
-
-  const serverMessage =
-    options?.serverMessage ??
-    "Internal server error. Please try again in a moment.";
-  if (options?.lockOnServerError === true) {
-    lockPanel(target);
-  }
-  appendSystemMessage(target, serverMessage);
-  return true;
-}
-
-function showPanelLoading() {
-  if (document.getElementById("tutor-panel-loading")) return;
-  const loading = document.createElement("div");
-  loading.id = "tutor-panel-loading";
-  loading.className = "tutor-panel-loading";
-  loading.innerHTML = `<span class="tutor-panel-loading-spinner"></span><span>Restoring session...</span>`;
-  document.body.appendChild(loading);
-}
-
-function hidePanelLoading() {
-  document.getElementById("tutor-panel-loading")?.remove();
-}
-
 function highlightExistingPanel(session: HTMLElement) {}
 
 function setupMessageListener() {}
