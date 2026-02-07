@@ -1,19 +1,11 @@
-type VibeTutorMessage = {
-  action: string;
-  payload: {
-    query?: string;
-    code?: string;
-    action: string;
-  };
-};
-
-type MessageSender = {
-  tab?: {
-    id?: number;
-    url?: string;
-    title?: string;
-  };
-};
+import type {
+  AuthState,
+  BackendFetchError,
+  BackendFetchSuccess,
+  MessageSender,
+  RollingStateGuideMode,
+  VibeTutorMessage,
+} from "./core/types";
 
 export default defineBackground(() => {
   console.log("VibeTutor: background script loaded");
@@ -229,12 +221,6 @@ async function handleSaveNotes(payload: { notes: unknown[] }) {
     return { success: false, error: "Storage error" };
   }
 }
-
-type RollingStateGuideMode = {
-  problem: string;
-  nudges: string[]; // keep last N
-  lastEdit: string;
-};
 
 async function handleGuideMode(payload: {
   sessionId: string;
@@ -469,33 +455,11 @@ async function handleSummarize(payload: {
   return data;
 }
 
-type AuthState = {
-  userId: string;
-  jwt: string;
-  accessToken?: string;
-  refreshToken?: string;
-  issuedAt?: number;
-  expiresAt?: number;
-};
 const AUTH_STORAGE_KEY = "vibetutor-auth";
 const BACKEND_BASE_URL = "http://127.0.0.1:8000";
 const WORKSPACE_STATE_KEY = "vibetutor-workspace-state";
 const AUTH_TOKEN_TTL_MS = 16 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
-
-type BackendFetchSuccess<T> = {
-  success: true;
-  data: T;
-  status: number;
-};
-
-type BackendFetchError = {
-  success: false;
-  error: string;
-  status?: number;
-  timeout?: boolean;
-  unauthorized?: boolean;
-};
 
 function extractErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object") return fallback;
