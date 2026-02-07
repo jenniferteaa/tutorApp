@@ -122,6 +122,7 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
       if (resp?.userId && resp?.jwt) {
         await applyAuthSuccess(panel, authBox, resp.userId, { unlockPanel });
       } else if (errorBox) {
+        console.log("this is the resp: ", resp);
         errorBox.textContent = "Invalid creds";
         errorBox.style.display = "block";
       }
@@ -215,7 +216,12 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
         }
         return;
       }
-      const resp = await signupWithCredentials({ fname, lname, email, password });
+      const resp = await signupWithCredentials({
+        fname,
+        lname,
+        email,
+        password,
+      });
       if (resp?.success === false) {
         if (errorBox) {
           errorBox.textContent = resp.error || "Internal server error";

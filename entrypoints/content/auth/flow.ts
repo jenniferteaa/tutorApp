@@ -9,10 +9,7 @@ import {
   scheduleSessionPersist,
 } from "../session/storage";
 import { state, type TutorSession } from "../state";
-import {
-  initSessionTopicsIfNeeded,
-  resetPanelForUser,
-} from "./sessionSwitch";
+import { initSessionTopicsIfNeeded, resetPanelForUser } from "./sessionSwitch";
 
 export type AuthSuccessDeps = {
   unlockPanel: (panel: HTMLElement) => void;
