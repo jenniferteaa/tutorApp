@@ -6,6 +6,13 @@ import type {
   RollingStateGuideMode,
   VibeTutorMessage,
 } from "./core/types";
+import {
+  AUTH_STORAGE_KEY,
+  AUTH_TOKEN_TTL_MS,
+  BACKEND_BASE_URL,
+  REQUEST_TIMEOUT_MS,
+  WORKSPACE_STATE_KEY,
+} from "./core/constants";
 
 export default defineBackground(() => {
   console.log("VibeTutor: background script loaded");
@@ -455,11 +462,6 @@ async function handleSummarize(payload: {
   return data;
 }
 
-const AUTH_STORAGE_KEY = "vibetutor-auth";
-const BACKEND_BASE_URL = "http://127.0.0.1:8000";
-const WORKSPACE_STATE_KEY = "vibetutor-workspace-state";
-const AUTH_TOKEN_TTL_MS = 16 * 60 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 15_000;
 
 function extractErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object") return fallback;
