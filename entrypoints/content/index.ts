@@ -1,55 +1,45 @@
+import { configureAuthOverlay, ensureAuthPrompt } from "./auth/overlay";
+import { initSessionTopicsIfNeeded } from "./auth/sessionSwitch";
 import { configureCheck } from "./check";
-import { configureGuide, detachGuideListeners, resetGuideState } from "./guide";
+import { configureGuide } from "./guide";
 import {
+  ensureLanguageObserver as ensureLanguageObserverBase,
   getCanonicalProblemUrl,
   getEditorLanguageFromPage,
-  getProblemTitleFromPage,
-  getRollingTopicsFromPage,
+  syncSessionLanguageFromPage as syncSessionLanguageFromPageBase,
 } from "./leetcode";
+import { sendAskAnything, sendSummarizeHistory } from "./messaging";
 import {
-  sendAskAnything,
-  sendInitSessionTopics,
-  sendSummarizeHistory,
-  sendSupabaseLogin,
-  sendSupabaseSignup,
-} from "./messaging";
+  closeTutorPanel,
+  configureLifecycle,
+  openTutorPanel,
+  startProblemUrlWatcher,
+} from "./session/lifecycle";
 import {
-  applyStoredSessionToPanel,
-  clearAuthFromStorage,
-  clearSessionState,
+  configureActivity,
+  markUserActivity,
+  setupActivityTracking,
+  stopPanelOperations,
+} from "./session/activity";
+import {
   hydrateStoredSessionCache,
-  isAuthExpired,
-  isStoredSessionForUser,
-  loadAuthFromStorage,
-  loadSessionState,
   saveSessionState,
   scheduleSessionPersist,
   startSessionCleanupSweep,
 } from "./session/storage";
-import {
-  state,
-  type SessionRollingHistoryLLM,
-  type TutorSession,
-} from "./state";
-import { prettifyLlMResponse, renderMarkdown } from "./ui/render";
+import { state, type SessionRollingHistoryLLM } from "./state";
 import {
   appendPanelMessage,
   showAssistantLoading,
   typeMessage,
 } from "./ui/messages";
-import {
-  createTutorPanel,
-  hideTutorPanel,
-  setPanelControlsDisabled,
-  showTutorPanel,
-} from "./ui/panel";
+import { setPanelControlsDisabled, showTutorPanel } from "./ui/panel";
+import { prettifyLlMResponse, renderMarkdown } from "./ui/render";
 import {
   configureWidget,
   createFloatingWidget,
   hideWidget,
   loadWidgetPosition,
-  positionWidgetFromPanel,
-  showWidget,
 } from "./ui/widget";
 
 export default defineContentScript({
@@ -86,6 +76,21 @@ function initializeWidget() {
     syncSessionLanguageFromPage,
     handleBackendError,
   });
+  configureActivity({
+    lockPanel,
+  });
+  configureLifecycle({
+    highlightExistingPanel,
+    lockPanel,
+    markUserActivity,
+    showPanelLoading,
+    hidePanelLoading,
+    initSessionTopicsIfNeeded,
+  });
+  configureAuthOverlay({
+    stopPanelOperations,
+    unlockPanel,
+  });
   configureWidget({
     openTutorPanel,
     closeTutorPanel,
@@ -114,226 +119,12 @@ function initializeWidget() {
   });
 }
 
-function isStrongPassword(password: string): boolean {
-  if (password.length < 8) return false;
-  if (/\s/.test(password)) return false;
-  if (!/[A-Z]/.test(password)) return false;
-  if (!/[a-z]/.test(password)) return false;
-  if (!/[0-9]/.test(password)) return false;
-  if (!/[^A-Za-z0-9]/.test(password)) return false;
-  return true;
-}
-
-const LANGUAGE_BUTTON_SELECTOR = '#editor button[aria-haspopup="dialog"]';
-
 function syncSessionLanguageFromPage() {
-  if (!state.currentTutorSession) return;
-  const language = getEditorLanguageFromPage();
-  if (!language) return;
-  if (state.currentTutorSession.language === language) return;
-  state.currentTutorSession.language = language;
-  scheduleSessionPersist(state.currentTutorSession.element ?? null);
+  syncSessionLanguageFromPageBase(scheduleSessionPersist);
 }
 
 function ensureLanguageObserver() {
-  const button = document.querySelector<HTMLElement>(LANGUAGE_BUTTON_SELECTOR);
-  if (!button) return;
-
-  if (!button.dataset.tutorLangListener) {
-    button.dataset.tutorLangListener = "true";
-    button.addEventListener(
-      "click",
-      () => {
-        window.setTimeout(syncSessionLanguageFromPage, 50);
-      },
-      { passive: true },
-    );
-  }
-
-  if (state.languageObserverTarget === button && state.languageObserver) {
-    syncSessionLanguageFromPage();
-    return;
-  }
-
-  state.languageObserver?.disconnect();
-  state.languageObserverTarget = button;
-  state.languageObserver = new MutationObserver(() => {
-    syncSessionLanguageFromPage();
-  });
-  state.languageObserver.observe(button, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-  });
-
-  syncSessionLanguageFromPage();
-}
-
-function buildFreshSession(
-  panel: HTMLElement,
-  userId: string,
-  problemName?: string,
-): TutorSession {
-  const title = problemName ?? getProblemTitleFromPage();
-  const sessionId = crypto.randomUUID();
-  return {
-    element: panel,
-    sessionId,
-    userId,
-    problem: title,
-    problemUrl: getCanonicalProblemUrl(window.location.href),
-    language: getEditorLanguageFromPage(),
-    topics: getRollingTopicsFromPage(),
-    sessionTopicsInitialized: false,
-    content: [],
-    prompt: "",
-    position: null,
-    size: null,
-    guideModeEnabled: false,
-    checkModeEnabled: false,
-    rollingStateGuideMode: {
-      problem: title,
-      nudges: [],
-      lastEdit: "",
-    },
-    sessionRollingHistory: {
-      qaHistory: [],
-      summary: "",
-      toSummarize: [],
-    },
-  };
-}
-
-async function openTutorPanel() {
-  const auth = await loadAuthFromStorage();
-  const authExpired = isAuthExpired(auth);
-  const authUserId = auth?.userId ?? "";
-  if (authExpired) {
-    await clearAuthFromStorage();
-  }
-
-  if (
-    state.currentTutorSession &&
-    state.currentTutorSession.element &&
-    document.body.contains(state.currentTutorSession.element)
-  ) {
-    ensureLanguageObserver();
-    syncSessionLanguageFromPage();
-    showTutorPanel(state.currentTutorSession.element);
-    hideWidget();
-    state.isWindowOpen = true;
-    highlightExistingPanel(state.currentTutorSession.element);
-    const contentArea =
-      state.currentTutorSession.element.querySelector<HTMLElement>(
-        ".tutor-panel-content",
-      );
-    if (contentArea) {
-      requestAnimationFrame(() => {
-        contentArea.scrollTop = contentArea.scrollHeight;
-      });
-    }
-    if (!authUserId || authExpired) {
-      lockPanel(state.currentTutorSession.element);
-      ensureAuthPrompt(
-        state.currentTutorSession.element,
-        authExpired ? "session expired, please log back in" : undefined,
-      );
-    } else {
-      void initSessionTopicsIfNeeded(state.currentTutorSession);
-    }
-    markUserActivity();
-    scheduleSessionPersist(state.currentTutorSession.element);
-    return;
-  }
-
-  if (state.currentTutorSession?.userId) {
-    showPanelLoading();
-    try {
-      await saveSessionState(state.currentTutorSession.element ?? null, {
-        force: true,
-      });
-    } finally {
-      hidePanelLoading();
-    }
-  }
-
-  if (!state.pendingStoredSession) {
-    if (authUserId) {
-      const stored = await loadSessionState(
-        authUserId,
-        getProblemTitleFromPage(),
-      );
-      if (
-        stored &&
-        isStoredSessionForUser(
-          stored,
-          authUserId,
-          getCanonicalProblemUrl(window.location.href),
-        )
-      ) {
-        state.pendingStoredSession = stored;
-      }
-    }
-  }
-
-  if (state.pendingStoredSession) {
-    const tutorPanel = createTutorPanel();
-    applyStoredSessionToPanel(tutorPanel, state.pendingStoredSession);
-    state.pendingStoredSession = null;
-    ensureLanguageObserver();
-    syncSessionLanguageFromPage();
-    showTutorPanel(tutorPanel);
-    hideWidget();
-    state.isWindowOpen = true;
-    markUserActivity();
-    if (!authUserId || authExpired) {
-      lockPanel(tutorPanel); // #lockpanel
-      ensureAuthPrompt(
-        tutorPanel,
-        authExpired ? "session expired, please log back in" : undefined,
-      );
-    } else if (state.currentTutorSession) {
-      void initSessionTopicsIfNeeded(state.currentTutorSession);
-    }
-    scheduleSessionPersist(tutorPanel);
-    return;
-  }
-
-  const tutorPanel = createTutorPanel();
-  if (!tutorPanel) {
-    console.log("There was an error creating a panel");
-    return;
-  }
-  state.currentTutorSession = buildFreshSession(tutorPanel, authUserId);
-  ensureLanguageObserver();
-  syncSessionLanguageFromPage();
-  showTutorPanel(tutorPanel);
-  hideWidget();
-  state.isWindowOpen = true;
-  markUserActivity();
-  scheduleSessionPersist(tutorPanel);
-  if (!state.currentTutorSession) return;
-  if (!authUserId || authExpired) {
-    lockPanel(tutorPanel);
-    ensureAuthPrompt(
-      tutorPanel,
-      authExpired ? "session expired, please log back in" : undefined,
-    );
-  } else {
-    state.currentTutorSession.userId = authUserId;
-    void initSessionTopicsIfNeeded(state.currentTutorSession);
-  }
-  // lockPanel
-  // Auto-focus the textarea when created via shortcut
-  setTimeout(() => {
-    const textarea = tutorPanel.querySelector(
-      ".tutor-panel-prompt",
-    ) as HTMLTextAreaElement;
-    if (textarea) {
-      textarea.focus();
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length); // Place cursor at end
-    }
-  }, 100);
+  ensureLanguageObserverBase(scheduleSessionPersist);
 }
 
 async function requestHistorySummary(history: SessionRollingHistoryLLM) {
@@ -371,109 +162,9 @@ function maybeQueueSummary(history: SessionRollingHistoryLLM) {
   void requestHistorySummary(history);
 }
 
-async function initSessionTopicsIfNeeded(session: TutorSession) {
-  if (session.sessionTopicsInitialized) return;
-  if (!session.userId) return;
-  const resp = await sendInitSessionTopics({
-    sessionId: session.sessionId,
-    topics: session.topics,
-  });
-  if (resp?.success) {
-    session.sessionTopicsInitialized = true;
-    scheduleSessionPersist(session.element ?? null);
-  }
-}
-
 const WORKSPACE_URL = "http://localhost:3000/auth/bridge";
 
 // const WORKSPACE_URL = ""; // TODO: paste workspace auth-bridge URL here
-//const INACTIVITY_MS = 1 * 60 * 1000; // 57,600,000
-const INACTIVITY_MS = 16 * 60 * 60 * 1000; // 57,600,000
-const ACTIVITY_PERSIST_INTERVAL_MS = 15000;
-
-function resetPanelForUser(
-  panel: HTMLElement,
-  userId: string,
-  problemName: string,
-) {
-  resetGuideState();
-  const contentArea = panel.querySelector<HTMLElement>(".tutor-panel-content");
-  if (contentArea) {
-    contentArea.innerHTML = "";
-  }
-  const prompt = panel.querySelector<HTMLTextAreaElement>(
-    ".tutor-panel-prompt",
-  );
-  if (prompt) {
-    prompt.value = "";
-  }
-  state.currentTutorSession = buildFreshSession(panel, userId, problemName);
-  if (state.currentTutorSession) {
-    void initSessionTopicsIfNeeded(state.currentTutorSession);
-  }
-}
-
-function markUserActivity() {
-  state.lastActivityAt = Date.now();
-  if (Date.now() - state.lastActivityStoredAt > ACTIVITY_PERSIST_INTERVAL_MS) {
-    state.lastActivityStoredAt = Date.now();
-    scheduleSessionPersist();
-  }
-}
-
-async function logoutForInactivity() {
-  if (state.currentTutorSession?.element) {
-    await saveSessionState(state.currentTutorSession.element, { force: true });
-    state.sessionRestorePending = true;
-  }
-  await clearAuthFromStorage();
-  if (state.currentTutorSession) {
-    state.currentTutorSession.guideModeEnabled = false;
-    state.currentTutorSession.checkModeEnabled = false;
-  }
-  if (state.currentTutorSession?.element) {
-    const panel = state.currentTutorSession.element;
-    detachGuideListeners();
-    panel.classList.remove("guidemode-active", "checkmode-active");
-    lockPanel(panel);
-    ensureAuthPrompt(panel, "session expired, please log back in");
-  }
-}
-
-function setupActivityTracking() {
-  const handler = () => markUserActivity();
-  const events = ["mousemove", "keydown", "click", "scroll", "input"];
-  for (const event of events) {
-    document.addEventListener(event, handler, { passive: true });
-  }
-  if (state.inactivityTimerId) {
-    window.clearInterval(state.inactivityTimerId);
-  }
-  state.inactivityTimerId = window.setInterval(async () => {
-    if (Date.now() - state.lastActivityAt < INACTIVITY_MS) return;
-    const auth = await loadAuthFromStorage();
-    if (!auth?.userId) return;
-    await logoutForInactivity();
-  }, 60_000);
-}
-
-function stopPanelOperations(panel: HTMLElement) {
-  state.queue = [];
-  state.flushInFlight = false;
-  resetGuideState();
-  detachGuideListeners();
-  panel.querySelectorAll(".tutor-panel-assistant-loading").forEach((el) => {
-    el.remove();
-  });
-  if (state.currentTutorSession) {
-    state.currentTutorSession.guideModeEnabled = false;
-    state.currentTutorSession.checkModeEnabled = false;
-  }
-  panel.classList.remove("guidemode-active", "checkmode-active");
-  panel.querySelector(".btn-guide-mode")?.classList.remove("is-loading");
-  panel.querySelector(".btn-help-mode")?.classList.remove("is-loading");
-}
-
 function lockPanel(panel: HTMLElement) {
   panel.classList.add("tutor-panel-locked");
   setPanelControlsDisabled(panel, true);
@@ -590,308 +281,6 @@ function hidePanelLoading() {
   document.getElementById("tutor-panel-loading")?.remove();
 }
 
-async function handleProblemUrlChange(nextUrl: string) {
-  if (state.currentTutorSession?.userId && state.currentTutorSession.element) {
-    await saveSessionState(state.currentTutorSession.element, { force: true });
-  }
-  state.pendingStoredSession = null;
-  resetGuideState();
-  const wasOpen = state.isWindowOpen;
-  if (state.currentTutorSession?.element) {
-    state.currentTutorSession.element.remove();
-  }
-  state.currentTutorSession = null;
-  state.isWindowOpen = false;
-  showWidget();
-  await hydrateStoredSessionCache();
-  if (wasOpen) {
-    void openTutorPanel();
-  }
-}
-
-function startProblemUrlWatcher() {
-  if (state.problemUrlWatcherId) {
-    window.clearInterval(state.problemUrlWatcherId);
-  }
-  state.problemUrlWatcherId = window.setInterval(() => {
-    const current = getCanonicalProblemUrl(window.location.href);
-    if (current !== state.lastCanonicalProblemUrl) {
-      state.lastCanonicalProblemUrl = current;
-      void handleProblemUrlChange(current);
-    }
-  }, 1000);
-}
-
-function ensureAuthPrompt(panel: HTMLElement, message?: string) {
-  const existing = panel.querySelector<HTMLElement>(".tutor-panel-auth");
-  if (existing) {
-    if (message) {
-      const errorBox = existing.querySelector<HTMLElement>(".auth-error");
-      if (errorBox) {
-        errorBox.textContent = message;
-        errorBox.style.display = "block";
-      }
-    }
-    return;
-  }
-  state.suspendPanelOps = true;
-  stopPanelOperations(panel);
-
-  const authBox = document.createElement("div");
-  authBox.className = "tutor-panel-auth";
-  panel.appendChild(authBox);
-
-  const setupPasswordToggle = (
-    input: HTMLInputElement | null,
-    toggle: HTMLButtonElement | null,
-  ) => {
-    if (!input || !toggle) return;
-    const update = () => {
-      const hidden = input.type === "password";
-      toggle.setAttribute(
-        "aria-label",
-        hidden ? "Show password" : "Hide password",
-      );
-    };
-    toggle.addEventListener("click", () => {
-      input.type = input.type === "password" ? "text" : "password";
-      update();
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    });
-    update();
-  };
-
-  const applyAuthSuccess = async (userId: string) => {
-    const currentUserId = state.currentTutorSession?.userId ?? "";
-    const problemName =
-      state.currentTutorSession?.problem ?? getProblemTitleFromPage();
-    state.suspendPanelOps = false;
-
-    if (currentUserId && currentUserId === userId) {
-      state.sessionRestorePending = false;
-      unlockPanel(panel);
-      authBox.remove();
-      scheduleSessionPersist(panel);
-      return;
-    }
-
-    if (currentUserId && currentUserId !== userId) {
-      await saveSessionState(panel, { force: true });
-      resetPanelForUser(panel, userId, problemName);
-    }
-
-    const stored = await loadSessionState(userId, problemName);
-    if (
-      stored &&
-      isStoredSessionForUser(
-        stored,
-        userId,
-        getCanonicalProblemUrl(window.location.href),
-      )
-    ) {
-      applyStoredSessionToPanel(panel, stored);
-      await clearSessionState(userId, stored.state.problem);
-      state.pendingStoredSession = null;
-    } else if (stored) {
-      await clearSessionState(userId, stored.state.problem);
-    }
-
-    if (state.currentTutorSession) {
-      state.currentTutorSession.userId = userId;
-      void initSessionTopicsIfNeeded(state.currentTutorSession);
-    }
-    state.sessionRestorePending = false;
-    unlockPanel(panel);
-    authBox.remove();
-    scheduleSessionPersist(panel);
-  };
-
-  const renderLoginBox = (message?: string) => {
-    authBox.innerHTML = `
-      <div class="auth-error"></div>
-      <h4>Login Required</h4>
-      <input type="email" class="auth-email" placeholder="you@example.com" />
-      <div class="auth-password-wrap">
-        <input type="password" class="auth-password" placeholder="password" />
-        <button type="button" class="auth-password-toggle" aria-label="Show password">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">
-            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"></path>
-            <circle cx="12" cy="12" r="3.5"></circle>
-          </svg>
-        </button>
-      </div>
-      <div class="auth-actions">
-        <button type="button" class="auth-login">Login</button>
-        <span class="auth-sep">/</span>
-        <button type="button" class="auth-signup">Sign up</button>
-      </div>
-    `;
-
-    const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
-    const passwordInput =
-      authBox.querySelector<HTMLInputElement>(".auth-password");
-    const login = authBox.querySelector<HTMLButtonElement>(".auth-login");
-    const signup = authBox.querySelector<HTMLButtonElement>(".auth-signup");
-    const toggle = authBox.querySelector<HTMLButtonElement>(
-      ".auth-password-toggle",
-    );
-    const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
-    if (message && errorBox) {
-      errorBox.textContent = message;
-      errorBox.style.display = "block";
-    }
-    const clearError = () => {
-      if (!errorBox) return;
-      errorBox.style.display = "none";
-    };
-    emailInput?.addEventListener("input", clearError);
-    passwordInput?.addEventListener("input", clearError);
-    setupPasswordToggle(passwordInput, toggle);
-    login?.addEventListener("click", async () => {
-      const email = emailInput?.value.trim() ?? "";
-      const password = passwordInput?.value.trim() ?? "";
-      if (!email || !password) return;
-      const resp = await sendSupabaseLogin({ email, password });
-      if (resp?.success === false) {
-        if (errorBox) {
-          errorBox.textContent = resp.error || "Internal server error";
-          errorBox.style.display = "block";
-        }
-        return;
-      }
-      if (resp?.userId && resp?.jwt) {
-        await applyAuthSuccess(resp.userId);
-      } else if (errorBox) {
-        errorBox.textContent = "Invalid creds";
-        errorBox.style.display = "block";
-      }
-    });
-    signup?.addEventListener("click", () => {
-      renderSignupBox();
-    });
-  };
-
-  const renderSignupBox = () => {
-    authBox.innerHTML = `
-      <div class="auth-error">Signup failed</div>
-      <h4>Create account</h4>
-      <div class="auth-name-row">
-        <input type="text" class="auth-first-name" placeholder="First name" />
-        <input type="text" class="auth-last-name" placeholder="Last name" />
-      </div>
-      <input type="email" class="auth-email" placeholder="you@example.com" />
-      <div class="auth-password-wrap">
-        <input type="password" class="auth-password" placeholder="password" />
-        <button type="button" class="auth-password-toggle" aria-label="Show password">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6">
-            <path d="M1.5 12s4-7.5 10.5-7.5S22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z"></path>
-            <circle cx="12" cy="12" r="3.5"></circle>
-          </svg>
-        </button>
-      </div>
-      <div class="auth-password-hint"></div>
-      <div class="auth-actions">
-        <button type="button" class="auth-signup-submit">Sign up</button>
-        <span class="auth-sep">/</span>
-        <button type="button" class="auth-back">Back to login</button>
-      </div>
-    `;
-    const firstNameInput =
-      authBox.querySelector<HTMLInputElement>(".auth-first-name");
-    const lastNameInput =
-      authBox.querySelector<HTMLInputElement>(".auth-last-name");
-    const emailInput = authBox.querySelector<HTMLInputElement>(".auth-email");
-    const passwordInput =
-      authBox.querySelector<HTMLInputElement>(".auth-password");
-    const signupSubmit = authBox.querySelector<HTMLButtonElement>(
-      ".auth-signup-submit",
-    );
-    const toggle = authBox.querySelector<HTMLButtonElement>(
-      ".auth-password-toggle",
-    );
-    const errorBox = authBox.querySelector<HTMLElement>(".auth-error");
-    const passwordHint = authBox.querySelector<HTMLElement>(
-      ".auth-password-hint",
-    );
-    const clearError = () => {
-      if (!errorBox) return;
-      errorBox.style.display = "none";
-    };
-    firstNameInput?.addEventListener("input", clearError);
-    lastNameInput?.addEventListener("input", clearError);
-    emailInput?.addEventListener("input", clearError);
-    passwordInput?.addEventListener("input", clearError);
-    setupPasswordToggle(passwordInput, toggle);
-    passwordInput?.addEventListener("blur", () => {
-      if (!passwordHint || !passwordInput) return;
-      const value = passwordInput.value.trim();
-      if (value && !isStrongPassword(value)) {
-        passwordHint.textContent =
-          "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
-        passwordHint.style.display = "block";
-      } else {
-        passwordHint.style.display = "none";
-      }
-    });
-    passwordInput?.addEventListener("input", () => {
-      if (!passwordHint || !passwordInput) return;
-      const value = passwordInput.value.trim();
-      if (value && isStrongPassword(value)) {
-        passwordHint.style.display = "none";
-      }
-    });
-
-    signupSubmit?.addEventListener("click", async () => {
-      const fname = firstNameInput?.value.trim() ?? "";
-      const lname = lastNameInput?.value.trim() ?? "";
-      const email = emailInput?.value.trim() ?? "";
-      const password = passwordInput?.value.trim() ?? "";
-      if (!fname || !lname || !email || !password) return;
-      if (!isStrongPassword(password)) {
-        if (passwordHint) {
-          passwordHint.textContent =
-            "Must be at least 8 characters with letter and number, no special or non-ASCII characters.";
-          passwordHint.style.display = "block";
-        }
-        return;
-      }
-      const resp = await sendSupabaseSignup({ fname, lname, email, password });
-      if (resp?.success === false) {
-        if (errorBox) {
-          errorBox.textContent = resp.error || "Internal server error";
-          errorBox.style.display = "block";
-        }
-        return;
-      }
-      if (resp?.requiresVerification) {
-        renderLoginBox("Waiting for verification, check email");
-      } else if (resp?.userId && resp?.jwt) {
-        await applyAuthSuccess(resp.userId);
-      } else if (errorBox) {
-        errorBox.style.display = "block";
-      }
-    });
-
-    const back = authBox.querySelector<HTMLButtonElement>(".auth-back");
-    back?.addEventListener("click", () => {
-      renderLoginBox();
-    });
-  };
-
-  renderLoginBox(message);
-}
-
-function closeTutorPanel() {
-  if (!state.currentTutorSession?.element) {
-    return;
-  }
-  hideTutorPanel(state.currentTutorSession.element);
-  positionWidgetFromPanel(state.currentTutorSession.element);
-  showWidget();
-  state.isWindowOpen = false;
-  scheduleSessionPersist(state.currentTutorSession.element);
-}
 function highlightExistingPanel(session: HTMLElement) {}
 
 function setupMessageListener() {}

@@ -1,3 +1,5 @@
+import { state } from "./state";
+
 export type TopicBucket = {
   thoughts_to_remember: string[];
   pitfalls: string[];
@@ -207,4 +209,56 @@ export function getEditorLanguageFromPage(): string {
     (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
   );
   return textNode?.textContent?.trim() ?? button.textContent?.trim() ?? "";
+}
+
+const LANGUAGE_BUTTON_SELECTOR = '#editor button[aria-haspopup="dialog"]';
+
+export function syncSessionLanguageFromPage(
+  scheduleSessionPersist: (panel?: HTMLElement | null) => void,
+) {
+  if (!state.currentTutorSession) return;
+  const language = getEditorLanguageFromPage();
+  if (!language) return;
+  if (state.currentTutorSession.language === language) return;
+  state.currentTutorSession.language = language;
+  scheduleSessionPersist(state.currentTutorSession.element ?? null);
+}
+
+export function ensureLanguageObserver(
+  scheduleSessionPersist: (panel?: HTMLElement | null) => void,
+) {
+  const button = document.querySelector<HTMLElement>(LANGUAGE_BUTTON_SELECTOR);
+  if (!button) return;
+
+  if (!button.dataset.tutorLangListener) {
+    button.dataset.tutorLangListener = "true";
+    button.addEventListener(
+      "click",
+      () => {
+        window.setTimeout(
+          () => syncSessionLanguageFromPage(scheduleSessionPersist),
+          50,
+        );
+      },
+      { passive: true },
+    );
+  }
+
+  if (state.languageObserverTarget === button && state.languageObserver) {
+    syncSessionLanguageFromPage(scheduleSessionPersist);
+    return;
+  }
+
+  state.languageObserver?.disconnect();
+  state.languageObserverTarget = button;
+  state.languageObserver = new MutationObserver(() => {
+    syncSessionLanguageFromPage(scheduleSessionPersist);
+  });
+  state.languageObserver.observe(button, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+
+  syncSessionLanguageFromPage(scheduleSessionPersist);
 }
