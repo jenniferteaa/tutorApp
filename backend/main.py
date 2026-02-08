@@ -114,7 +114,13 @@ def llm(req: CodeRequest, authorization: str | None = Header(default=None)):
             return {"success": False, "error": "Unknown request type"}
         
 @app.post("/api/llm/summarize")
-def llmSummarize(req: CodeToSummarize):
+def llmSummarize(req: CodeToSummarize, authorization: str | None = Header(default=None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    user_id = verify_backend_token(token)
+    if not user_id:
+        return {"success": False, "error": "Unauthorized"}
     response = requestSummarization(req.summary, req.summarize)
     return {"success": True, "reply": response}
 
@@ -124,7 +130,13 @@ def llmTopicSummary(req: TopicSummaryPayload):
     return {"success": True, **response}
         
 @app.post("/api/llm/ask")
-def llmAsk(req: AskPayload):
+def llmAsk(req: AskPayload, authorization: str | None = Header(default=None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    user_id = verify_backend_token(token)
+    if not user_id:
+        return {"success": False, "error": "Unauthorized"}
     match req.action:
         case "ask-anything":
             response = answerAskanything(

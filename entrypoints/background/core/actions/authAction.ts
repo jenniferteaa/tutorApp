@@ -62,7 +62,10 @@ export async function supabaseLogin(payload: {
   await setAuthState(auth);
   return {
     success: true,
-    ...auth,
+    data: {
+      ...auth,
+      token: auth.jwt,
+    },
   };
 }
 
@@ -80,6 +83,7 @@ export async function supabaseSignup(payload: {
     access_token?: string;
     refreshToken?: string;
     refresh_token?: string;
+    requiresVerification?: boolean;
     error?: string;
   }>(`${BACKEND_BASE_URL}/api/auth/signup`, {
     method: "POST",
@@ -92,11 +96,23 @@ export async function supabaseSignup(payload: {
     }),
   });
   if (!result.success) return result;
-  if (
-    result.data?.success === false ||
-    !result.data?.token ||
-    !result.data?.userId
-  ) {
+  if (result.data?.success === false) {
+    return {
+      success: false,
+      status: result.status,
+      error: extractErrorMessage(result.data, "Signup failed"),
+    };
+  }
+  if (result.data?.requiresVerification) {
+    return {
+      success: true,
+      data: {
+        requiresVerification: true,
+        userId: result.data.userId as string | undefined,
+      },
+    };
+  }
+  if (!result.data?.token || !result.data?.userId) {
     return {
       success: false,
       status: result.status,
@@ -119,9 +135,9 @@ export async function supabaseSignup(payload: {
   await setAuthState(auth);
   return {
     success: true,
-    token: auth.jwt,
-    userId: auth.userId,
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken,
+    data: {
+      ...auth,
+      token: auth.jwt,
+    },
   };
 }

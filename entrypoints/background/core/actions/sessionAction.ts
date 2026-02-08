@@ -9,7 +9,7 @@ export async function handleSessionInit(payload: {
 }) {
   const auth = await getAuthState();
   if (!auth?.jwt) {
-    return { success: false, error: "Unauthorized" };
+    return { success: false, unauthorized: true };
   }
   return forwardSessionInit(payload, auth.jwt);
 }
@@ -34,10 +34,12 @@ async function forwardSessionInit(
   });
   if (!result.success) return result;
   if (result.data?.success === false) {
+    const errorMessage = extractErrorMessage(result.data, "Session init failed");
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Session init failed"),
+      error: errorMessage,
+      unauthorized: /unauthorized/i.test(errorMessage),
     };
   }
   return { success: true };

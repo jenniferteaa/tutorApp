@@ -70,7 +70,8 @@ export async function runCheckMode(
     ) {
       return "Failure";
     }
-    const response_llm = response?.resp;
+    const response_llm = (response as { data?: { resp?: unknown } })?.data
+      ?.resp;
     //const pretty = prettifyLlMResponse(response_llm);
     if (state.currentTutorSession && typeof response_llm === "string") {
       state.currentTutorSession.content.push(`${response_llm}\n`);
@@ -79,7 +80,7 @@ export async function runCheckMode(
       await appendToContentPanel(panel, "", "checkAssistant", response_llm);
     }
 
-    const topics = response?.topics;
+    const topics = (response as { data?: { topics?: unknown } })?.data?.topics;
     if (topics && typeof topics === "object" && state.currentTutorSession) {
       for (const [topic, raw] of Object.entries(
         topics as Record<string, unknown>,
@@ -121,7 +122,7 @@ export async function runCheckMode(
     }
     console.log("this is the object now: ", state.currentTutorSession?.topics);
     scheduleSessionPersist(panel);
-    return response?.resp;
+    return (response as { data?: { resp?: unknown } })?.data?.resp;
   } catch (error) {
     console.error("checkMode failed", error);
     return "Failure";

@@ -1,4 +1,8 @@
-import { getCanonicalProblemUrl, getEditorLanguageFromPage, getProblemTitleFromPage } from "../leetcode";
+import {
+  getCanonicalProblemUrl,
+  getEditorLanguageFromPage,
+  getProblemTitleFromPage,
+} from "../leetcode";
 import { state, type TutorSession } from "../state";
 
 export type StoredAuth = {
@@ -31,8 +35,12 @@ export const SESSION_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
 export const SESSION_KEY_PREFIX = `${SESSION_STORAGE_KEY}:`;
 
 let cleanupTimerId: number | null = null;
+let authStorageListenerAttached = false;
 
-export function getSessionStorageKey(userId: string, problemName: string): string {
+export function getSessionStorageKey(
+  userId: string,
+  problemName: string,
+): string {
   return `${SESSION_STORAGE_KEY}:${encodeURIComponent(
     userId,
   )}:${encodeURIComponent(problemName)}`;
@@ -44,6 +52,7 @@ export async function loadAuthFromStorage() {
 }
 
 export function isAuthExpired(auth: StoredAuth | null) {
+  //if (!auth) return false;
   if (!auth?.expiresAt) return false;
   return Date.now() > auth.expiresAt;
 }
@@ -99,6 +108,18 @@ export function startSessionCleanupSweep() {
   }, SESSION_CLEANUP_INTERVAL_MS);
 }
 
+export function watchAuthStorageCleared(onCleared: () => void) {
+  if (authStorageListenerAttached) return;
+  authStorageListenerAttached = true;
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local") return;
+    const authChange = changes[AUTH_STORAGE_KEY];
+    if (authChange && authChange.newValue == null) {
+      onCleared();
+    }
+  });
+}
+
 export function isStoredSessionForUser(
   stored: StoredTutorSession,
   userId: string,
@@ -138,7 +159,8 @@ export async function saveSessionState(
       sessionId: state.currentTutorSession.sessionId,
       userId: state.currentTutorSession.userId,
       content: state.currentTutorSession.content,
-      sessionTopicsInitialized: state.currentTutorSession.sessionTopicsInitialized,
+      sessionTopicsInitialized:
+        state.currentTutorSession.sessionTopicsInitialized,
       language: state.currentTutorSession.language,
       problem: state.currentTutorSession.problem,
       problemUrl: state.currentTutorSession.problemUrl,

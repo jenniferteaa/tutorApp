@@ -1,4 +1,5 @@
 import { BACKEND_BASE_URL } from "../constants";
+import { getAuthState } from "../../helpers/authStore";
 import { extractErrorMessage, fetchJsonWithTimeout } from "../../helpers/httpClient";
 
 export async function handleAskAway(payload: {
@@ -10,7 +11,12 @@ export async function handleAskAway(payload: {
   language: string;
 }) {
   console.debug("VibeTutor: ask-anything payload received");
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, unauthorized: true };
+  }
   const data = await forwardCodeToBackend(
+    auth.jwt,
     payload.sessionId,
     payload.action ?? "ask-anything",
     payload.rollingHistory,
@@ -22,6 +28,7 @@ export async function handleAskAway(payload: {
 }
 
 async function forwardCodeToBackend(
+  token: string,
   sessionId: string,
   action: string,
   rollingHistory: string[],
@@ -35,7 +42,10 @@ async function forwardCodeToBackend(
     error?: string;
   }>(`${BACKEND_BASE_URL}/api/llm/ask`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({
       sessionId,
       action,
@@ -48,14 +58,18 @@ async function forwardCodeToBackend(
 
   if (!result.success) return result;
   if (result.data?.success === false) {
+    const errorMessage = extractErrorMessage(result.data, "Ask failed");
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Ask failed"),
+      error: errorMessage,
+      unauthorized: /unauthorized/i.test(errorMessage),
     };
   }
   return {
     success: true,
-    reply: typeof result.data?.reply === "string" ? result.data.reply : "",
+    data: {
+      reply: typeof result.data?.reply === "string" ? result.data.reply : "",
+    },
   };
 }

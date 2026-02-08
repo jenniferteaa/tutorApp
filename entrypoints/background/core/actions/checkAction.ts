@@ -14,7 +14,12 @@ export async function handleCheckCode(payload: {
   problem_url: string;
 }) {
   console.debug("VibeTutor: check-code payload received");
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, unauthorized: true };
+  }
   const data = await forwardCodeForCheckMode(
+    auth.jwt,
     payload.sessionId,
     payload.topics,
     payload.code,
@@ -28,6 +33,7 @@ export async function handleCheckCode(payload: {
 }
 
 async function forwardCodeForCheckMode(
+  token: string,
   sessionId: string,
   topics: TopicsMap,
   code: string,
@@ -37,13 +43,10 @@ async function forwardCodeForCheckMode(
   problem_name: string,
   problem_url: string,
 ) {
-  const auth = await getAuthState();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (auth?.jwt) {
-    headers.Authorization = `Bearer ${auth.jwt}`;
-  }
+  headers.Authorization = `Bearer ${token}`;
   const result = await fetchJsonWithTimeout<{
     success?: boolean;
     reply?: unknown;
@@ -64,15 +67,20 @@ async function forwardCodeForCheckMode(
   });
   if (!result.success) return result;
   if (result.data?.success === false) {
+    const errorMessage = extractErrorMessage(result.data, "Check mode failed");
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Check mode failed"),
+      error: errorMessage,
+      unauthorized: /unauthorized/i.test(errorMessage),
     };
   }
   const reply = result.data?.reply;
   if (reply && typeof reply === "object") {
-    return { success: true, ...(reply as Record<string, unknown>) };
+    return { success: true, data: reply as Record<string, unknown> };
   }
-  return { success: true, resp: typeof reply === "string" ? reply : "" };
+  return {
+    success: true,
+    data: { resp: typeof reply === "string" ? reply : "" },
+  };
 }

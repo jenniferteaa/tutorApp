@@ -93,9 +93,6 @@ export function createFloatingWidget() {
       transform: scale(0.95);
       box-shadow: 
         0 8px 30px rgba(47,59,56,0.35),
-    /*     0 0 25px rgb(120, 126, 123), */
-    /*    0 0 50px rgba(204, 102, 218, 0.7), */
-    /*    0 0 80px rgba(204, 102, 218, 0.5); */
       animation: none;
     }
       
@@ -415,7 +412,7 @@ export function createFloatingWidget() {
   border-radius: 6px;
  /* background: rgba(244, 67, 54, 0.12); */
   color: rgba(195, 49, 38, 0.95);
-  font-weight: 700;
+ /* font-weight: 700; */
   font-size: 13px;
 }
 .tutor-panel-auth .auth-password-hint{
@@ -424,7 +421,7 @@ export function createFloatingWidget() {
   margin: 6px 0 0 0;
   color: rgba(195, 49, 38, 0.95);
   /* font-weight: 100; */
-  font-size: 13px;
+  font-size: 10px;
 }
 .tutor-panel-auth .auth-actions{
   display: flex;

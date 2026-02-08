@@ -35,7 +35,7 @@ function getErrorDeps(): ErrorDeps {
   return errorDeps;
 }
 
-const SESSION_EXPIRED_MESSAGE = "session expired, please log back in";
+const SESSION_EXPIRED_MESSAGE = "Session expired, please log back in";
 
 export function lockPanel(panel: HTMLElement) {
   const { setPanelControlsDisabled } = getErrorDeps();
@@ -91,7 +91,6 @@ export function handleBackendError(
   },
 ) {
   if (!isBackendErrorResponse(response)) return false;
-  if (options?.silent) return true;
   const target = panel ?? state.currentTutorSession?.element ?? null;
   if (!target) return true;
 
@@ -119,6 +118,11 @@ export function handleBackendError(
       scheduleSessionPersist(target);
     }
     removeSessionExpiredMessage(target);
+    return true;
+  }
+
+  if (options?.silent) {
+    console.debug("Silent backend error", response);
     return true;
   }
 

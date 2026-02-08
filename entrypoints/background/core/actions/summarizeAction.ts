@@ -1,4 +1,5 @@
 import { BACKEND_BASE_URL } from "../constants";
+import { getAuthState } from "../../helpers/authStore";
 import { extractErrorMessage, fetchJsonWithTimeout } from "../../helpers/httpClient";
 
 export async function handleSummarize(payload: {
@@ -7,7 +8,12 @@ export async function handleSummarize(payload: {
   summary: string;
 }) {
   //console.debug("VibeTutor: summarize payload received");
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, unauthorized: true };
+  }
   const data = await forwardSummaryToBackend(
+    auth.jwt,
     payload.sessionID,
     payload.summarize,
     payload.summary,
@@ -16,6 +22,7 @@ export async function handleSummarize(payload: {
 }
 
 async function forwardSummaryToBackend(
+  token: string,
   sessionID: string,
   summarize: string[],
   summary: string,
@@ -26,19 +33,26 @@ async function forwardSummaryToBackend(
     error?: string;
   }>(`${BACKEND_BASE_URL}/api/llm/summarize`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ sessionID, summarize, summary }),
   });
   if (!result.success) return result;
   if (result.data?.success === false) {
+    const errorMessage = extractErrorMessage(result.data, "Summarize failed");
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Summarize failed"),
+      error: errorMessage,
+      unauthorized: /unauthorized/i.test(errorMessage),
     };
   }
   return {
     success: true,
-    reply: typeof result.data?.reply === "string" ? result.data.reply : "",
+    data: {
+      reply: typeof result.data?.reply === "string" ? result.data.reply : "",
+    },
   };
 }

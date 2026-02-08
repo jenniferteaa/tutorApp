@@ -18,7 +18,12 @@ export async function handleGuideMode(payload: {
     payload.action,
   );
   console.log("this is the payload at background.ts payload: ", payload);
+  const auth = await getAuthState();
+  if (!auth?.jwt) {
+    return { success: false, unauthorized: true };
+  }
   return forwardCodeToBackendGuideMode(
+    auth.jwt,
     payload.sessionId,
     payload.action,
     payload.problem,
@@ -39,7 +44,7 @@ export async function handleGuideModeStatus(payload: {
 }) {
   const auth = await getAuthState();
   if (!auth?.jwt) {
-    return { success: false, error: "Unauthorized" };
+    return { success: false, unauthorized: true };
   }
   return forwardGuideModeStatus(payload, auth.jwt);
 }
@@ -68,16 +73,22 @@ async function forwardGuideModeStatus(
   });
   if (!result.success) return result;
   if (result.data?.success === false) {
+    const errorMessage = extractErrorMessage(
+      result.data,
+      "Guide mode status failed",
+    );
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Guide mode status failed"),
+      error: errorMessage,
+      unauthorized: /unauthorized/i.test(errorMessage),
     };
   }
   return { success: true };
 }
 
 async function forwardCodeToBackendGuideMode(
+  token: string,
   sessionId: string,
   action: string,
   problem: string,
@@ -87,13 +98,10 @@ async function forwardCodeToBackendGuideMode(
   language: string,
   rollingStateGuideMode: RollingStateGuideMode,
 ) {
-  const auth = await getAuthState();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (auth?.jwt) {
-    headers.Authorization = `Bearer ${auth.jwt}`;
-  }
+  headers.Authorization = `Bearer ${token}`;
   const result = await fetchJsonWithTimeout<{
     success?: boolean;
     reply?: unknown;
@@ -114,11 +122,13 @@ async function forwardCodeToBackendGuideMode(
   });
   if (!result.success) return result;
   if (result.data?.success === false) {
+    const errorMessage = extractErrorMessage(result.data, "Guide mode failed");
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Guide mode failed"),
+      error: errorMessage,
+      unauthorized: /unauthorized/i.test(errorMessage),
     };
   }
-  return { success: true, ...result.data };
+  return { success: true, data: { reply: result.data?.reply } };
 }

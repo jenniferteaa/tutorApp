@@ -34,6 +34,7 @@ import {
   saveSessionState,
   scheduleSessionPersist,
   startSessionCleanupSweep,
+  watchAuthStorageCleared,
 } from "./session/storage";
 import { state } from "./state";
 import { appendPanelMessage } from "./ui/messages";
@@ -111,6 +112,19 @@ function initializeWidget() {
   configureAuthOverlay({
     stopPanelOperations,
     unlockPanel,
+  });
+  watchAuthStorageCleared(() => {
+    const panel = state.currentTutorSession?.element;
+    if (!panel) return;
+    lockPanel(panel);
+    ensureAuthPrompt(panel);
+    if (!state.isWindowOpen) {
+      showTutorPanel(panel);
+      hideWidget();
+      state.isWindowOpen = true;
+      markUserActivity();
+      scheduleSessionPersist(panel);
+    }
   });
   configureWidget({
     openTutorPanel,

@@ -5,7 +5,10 @@ import { state } from "../state";
 import { showAssistantLoading } from "../ui/messages";
 import { appendToContentPanel } from "../ui/panel";
 
-export async function askAnything(panel: HTMLElement, query: string) {
+export async function askAnything(
+  panel: HTMLElement,
+  query: string,
+): Promise<string> {
   //console.log("this is the query asked: ", query);
   const loadingEl = showAssistantLoading(panel);
   const language =
@@ -28,8 +31,10 @@ export async function askAnything(panel: HTMLElement, query: string) {
     return "Failure";
   }
   const reply =
-    typeof response === "string" ? response : (response as any)?.reply;
-  if (typeof reply === "string" && reply.trim()) {
+    typeof response === "string"
+      ? response
+      : (response as { data?: { reply?: string } })?.data?.reply ?? "";
+  if (reply.trim()) {
     loadingEl?.remove();
     appendToContentPanel(panel, "", "assistant", reply);
   }

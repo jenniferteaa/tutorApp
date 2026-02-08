@@ -287,17 +287,41 @@ function setupTutorPanelEvents(panel: HTMLElement) {
       !state.currentTutorSession.guideModeEnabled;
 
     const guideModeButton = panel.querySelector<HTMLElement>(".btn-guide-mode");
-    if (state.currentTutorSession.userId) {
-      const problemName = state.currentTutorSession.problem;
-      const problemNo = getProblemNumberFromTitle(problemName);
-      void sendGuideModeStatus({
-        enabled: state.currentTutorSession.guideModeEnabled,
-        sessionId: state.currentTutorSession.sessionId,
-        problem_no: problemNo,
-        problem_name: problemName,
-        problem_url: state.currentTutorSession.problemUrl,
-      });
-    }
+    const problemName = state.currentTutorSession.problem;
+    const problemNo = getProblemNumberFromTitle(problemName);
+    void (async () => {
+      let retried = false;
+      while (true) {
+        const resp = await sendGuideModeStatus({
+          enabled: state.currentTutorSession?.guideModeEnabled ?? false,
+          sessionId: state.currentTutorSession?.sessionId ?? "",
+          problem_no: problemNo,
+          problem_name: problemName,
+          problem_url: state.currentTutorSession?.problemUrl,
+        });
+        if (
+          resp &&
+          (resp as { unauthorized?: boolean; status?: number })?.unauthorized
+        ) {
+          handleBackendError(panel, resp);
+          return;
+        }
+        if (!(resp as { success?: boolean })?.success) {
+          const errorText =
+            (resp as { error?: string })?.error?.toLowerCase() ?? "";
+          const shouldRetry =
+            (resp as { timeout?: boolean })?.timeout ||
+            errorText.includes("network");
+          if (shouldRetry && !retried) {
+            retried = true;
+            continue;
+          }
+          console.debug("Guide mode status update failed", resp);
+          return;
+        }
+        return;
+      }
+    })();
     setPanelControlsDisabledGuide(panel, true);
     panel.classList.add("guidemode-active");
 
@@ -392,6 +416,14 @@ function setupTutorPanelEvents(panel: HTMLElement) {
         state.currentTutorSession
       ) {
         codeSoFar = res.code;
+      }
+      if (!codeSoFar.trim()) {
+        appendPanelMessage(
+          panel,
+          "Couldn't read editor code. Try clicking inside the editor or reload the page.",
+          "assistant",
+        );
+        return;
       }
       const resp = await runCheckMode(panel, codeSoFar);
       console.log("this is the response: ", resp);

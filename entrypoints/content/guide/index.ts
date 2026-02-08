@@ -224,6 +224,17 @@ async function drainGuideQueue() {
         break;
       }
       const [code, focusLine] = state.queue.shift()!;
+      if (!code || !code.trim()) {
+        if (state.currentTutorSession?.element) {
+          await appendToContentPanel(
+            state.currentTutorSession.element,
+            "",
+            "assistant",
+            "Couldn't read editor code. Try clicking inside the editor or reload the page.",
+          );
+        }
+        continue;
+      }
       console.log("This is the focus line: ", focusLine); // this is not the one, get the correct focus line
       console.log("the code so far: ", code);
       syncSessionLanguageFromPage();
@@ -252,7 +263,7 @@ async function drainGuideQueue() {
         console.log("failure for guide mode");
       } else {
         // Put this into a separate function
-        const reply = resp.success ? resp.reply : null;
+        const reply = (resp as { data?: { reply?: unknown } })?.data?.reply;
         if (reply?.state_update?.lastEdit?.trim() && state.currentTutorSession) {
           state.currentTutorSession.rollingStateGuideMode.lastEdit =
             reply.state_update.lastEdit;

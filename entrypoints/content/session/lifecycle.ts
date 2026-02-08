@@ -251,6 +251,7 @@ async function handleProblemUrlChange(nextUrl: string) {
   showWidget();
   await hydrateStoredSessionCache();
   if (wasOpen) {
+    await waitForProblemTitle();
     void openTutorPanel();
   }
 }
@@ -266,4 +267,17 @@ export function startProblemUrlWatcher() {
       void handleProblemUrlChange(current);
     }
   }, 1000);
+}
+
+async function waitForProblemTitle(
+  maxWaitMs = 2000,
+  intervalMs = 100,
+): Promise<string> {
+  const deadline = Date.now() + maxWaitMs;
+  let title = getProblemTitleFromPage();
+  while (!title && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    title = getProblemTitleFromPage();
+  }
+  return title;
 }

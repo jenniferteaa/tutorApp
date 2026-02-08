@@ -11,7 +11,7 @@ export async function handleGoToWorkspace(payload?: { url?: string }) {
     }
     const auth = await getAuthState();
     if (!auth?.accessToken) {
-      return { success: false, error: "Not authenticated" };
+      return { success: false, unauthorized: true };
     }
     const state = crypto.randomUUID();
     await setWorkspaceState(state);

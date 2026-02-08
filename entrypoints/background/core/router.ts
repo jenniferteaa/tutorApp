@@ -52,8 +52,7 @@ export async function handleMessage(
       console.log("sending to handleCheckCode");
       const data = await handleCheckCode(message.payload);
       //console.log("this is the data: ", data);
-      if (!data) return "failure failure";
-      return data;
+      return data ?? { success: false, error: "Check failed" };
     }
     // case "solution": {
     //   if (!isSolutionPayload(message.payload)) {
@@ -76,8 +75,7 @@ export async function handleMessage(
         query: message.payload.query,
         language: message.payload.language,
       });
-      if (!data) return "Failure";
-      return data;
+      return data ?? { success: false, error: "Ask failed" };
     }
     case "summarize-history": {
       if (!isSummarizePayload(message.payload)) {
@@ -88,8 +86,7 @@ export async function handleMessage(
         summarize: message.payload.summarize,
         summary: message.payload.summary,
       });
-      if (!data) return "Failure";
-      return data;
+      return data ?? { success: false, error: "Summarize failed" };
     }
     case "supabase-login": {
       //
