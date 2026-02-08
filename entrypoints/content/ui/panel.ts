@@ -73,9 +73,12 @@ export function createTutorPanel() {
 
   document.body.appendChild(panel);
 
-  // Default first-time position (bottom-left-ish), clamped to viewport
-  const defaultLeft = 40;
-  const defaultTop = Math.round(window.innerHeight * 0.38);
+  // Default first-time position (near widget if present), clamped to viewport
+  const widgetRect = state.widget?.getBoundingClientRect() ?? null;
+  const defaultLeft = widgetRect ? widgetRect.right + 12 : 40;
+  const defaultTop = widgetRect
+    ? widgetRect.top
+    : Math.round(window.innerHeight * 0.38);
   const maxLeft = window.innerWidth - panel.offsetWidth - 20;
   const maxTop = window.innerHeight - panel.offsetHeight - 20;
   panel.style.left = `${Math.max(20, Math.min(defaultLeft, maxLeft))}px`;

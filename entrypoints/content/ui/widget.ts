@@ -1,3 +1,4 @@
+import tutorIconUrl from "../../../assets/tutor.png";
 import { state, type SessionRollingHistoryLLM } from "../state";
 
 type WidgetDeps = {
@@ -51,9 +52,9 @@ export function createFloatingWidget() {
   // create main widget container
   state.widget = document.createElement("div");
   state.widget.id = "tutor-widget";
-
   state.widget.innerHTML = `
-  <div class="widget-main-button" id="main-button">
+  <div class="widget-main-button" id="main-button" aria-label="Open tutor panel">
+    <img class="widget-icon" src="${tutorIconUrl}" alt="Tutor" />
   </div>
   `;
 
@@ -63,8 +64,8 @@ export function createFloatingWidget() {
   #tutor-widget{
   position: fixed;
   left: 0;
-  top: 0;
-  transform: translate(0px, 0px);
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 999999;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   user-select: none;
@@ -72,26 +73,33 @@ export function createFloatingWidget() {
   }
   
 .widget-main-button {
-      width: 50px;
-      height: 50px;
-      background: linear-gradient(135deg, #C8D0CC 0%, #A7B2AD 100%);
-      border-radius: 50%;
+      width: 56px;
+      height: 56px;
+      background: #0c0c0c;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 20px;
       cursor: pointer;
-      box-shadow: 0 4px 16px rgba(47,59,56,0.18);
+      box-shadow: 6px 6px 18px rgba(0,0,0,0.35);
       transition: all 0.3s ease;
       /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
       color: #ffffff;
     }
+.widget-main-button .widget-icon {
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));
+    }
 .widget-main-button.dragging {
       cursor: grabbing !important;
-      transform: scale(0.95);
-      box-shadow: 
+     /* transform: scale(0.95); */
+      box-shadow:
         0 8px 30px rgba(47,59,56,0.35),
       animation: none;
     }
@@ -113,7 +121,7 @@ export function createFloatingWidget() {
     0 2px 6px rgba(47,59,56,0.10);
 
   z-index: 999997;
-  font-family: Calibri, sans-serif;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   color: #2F3B38;
   font-weight: 500;
@@ -146,18 +154,18 @@ export function createFloatingWidget() {
   gap: 8px;
   min-height: 44px;
   padding: 8px 12px;
-  background: #D6DDD9;
+  background: #C8D0CC;
   border-bottom: 1px solid #C1C9C5;
   transition: background-color 160ms ease, box-shadow 160ms ease;
   cursor: grab;
   justify-content: flex-end;
 }
 .tutor-panel-shellbar:hover{
-  background: #C8D0CC;
+  background: #b9c2bd;
 }
 
 .tutor-panel-shellbar:active{
-  background: #C8D0CC;
+  background: #b9c2bd;
   cursor: grabbing;
 }
 
@@ -294,13 +302,13 @@ export function createFloatingWidget() {
 .btn-gotToWorkspace{
   border: none;
   background: #D6DDD9;
-  color: #2F3B38;
+  color: #000000;
 
   padding: 6px 10px;
   border-radius: 8px;
 
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 300;
   letter-spacing: 0.01em;
 
   cursor: pointer;
@@ -309,12 +317,12 @@ export function createFloatingWidget() {
 .btn-guide-mode:not(:disabled):hover,
 .btn-help-mode:not(:disabled):hover,
 .btn-gotToWorkspace:not(:disabled):hover{
-  background: #C8D0CC;
+  background: #a5b6ae;
 }
 .btn-guide-mode:active,
 .btn-help-mode:active,
 .btn-gotToWorkspace:active{
-  background: #C8D0CC;
+  background: #a5b6ae;
 }
 
 
@@ -705,7 +713,7 @@ export function createFloatingWidget() {
 
 .tutor-panel-message--user{
   align-self: flex-end;
-  padding: 10px 10px;
+  padding: 7px 10px;
   max-width: 75%;
   border-radius: 9px;
   background: #D6DDD9;
@@ -835,7 +843,7 @@ export function createFloatingWidget() {
     const widgetHeight = state.widget!.offsetHeight;
 
     return {
-      x: Math.max(0, Math.min(x, window.innerWidth - widgetWidth)),
+      x: 0,
       y: Math.max(0, Math.min(y, window.innerHeight - widgetHeight)),
     };
   }
@@ -845,7 +853,7 @@ export function createFloatingWidget() {
     const widgetHeight = state.widget!.offsetHeight;
 
     return {
-      x: x < window.innerWidth / 2 ? 0 : window.innerWidth - widgetWidth,
+      x: 0,
       y: Math.max(0, Math.min(y, window.innerHeight - widgetHeight)),
     };
   }
@@ -952,7 +960,7 @@ function setWidgetXY(x: number, y: number) {
 
   const w = state.widget.offsetWidth || 50;
   const h = state.widget.offsetHeight || 50;
-  const cx = Math.max(0, Math.min(x, window.innerWidth - w));
+  const cx = 0;
   const cy = Math.max(0, Math.min(y, window.innerHeight - h));
 
   state.widget.style.left = `${cx}px`;
@@ -988,16 +996,10 @@ export function positionWidgetFromPanel(panel: HTMLElement) {
   const widgetWidth = widgetRect.width || 50;
   const widgetHeight = widgetRect.height || 50;
 
-  const panelCenterX = panelRect.left + panelRect.width / 2;
-  const anchorLeft = panelCenterX <= window.innerWidth / 2;
-
-  const x = anchorLeft ? 10 : window.innerWidth - widgetWidth - 10;
+  const x = 0;
   const y = Math.max(
     10,
-    Math.min(
-      window.innerHeight / 2 - widgetHeight / 2,
-      window.innerHeight - widgetHeight - 10,
-    ),
+    Math.min(panelRect.top, window.innerHeight - widgetHeight - 10),
   );
 
   setWidgetXY(x, y);

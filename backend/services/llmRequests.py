@@ -6,12 +6,15 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
+from anthropic import Anthropic
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
 from services.dbWriter import write_checkmode_result_v2, buffer_guide_write, flush_guide_buffer, is_db_write_in_flight
 from services.redisClient import r, rkey, set_json, get_json
 
 load_dotenv()
+
+# client2 = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 client = OpenAI()
 GUIDE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
@@ -670,7 +673,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
                 r.eval(_LUA_MERGE_TOPICS, 1, topics_key, json.dumps(incoming), str(GUIDE_TTL_SECONDS))
             else:
                 print("guideModeAssist redis merge skipped: guide not enabled")
-        # #print("LLM data: ", data)
+        # # #print("LLM data: ", data)
         
 
         return data
@@ -697,6 +700,8 @@ def answerAskanything(
     Formatting rules:
     - Do NOT use Markdown table syntax (|, ---).
     - Do NOT present information in rows or columns.
+    - Wrap code specific content in ``.
+    - Formatting the test is encouraged.
 
     Use the summary only as background context.
     Prioritize the recent conversation history and the current question.
