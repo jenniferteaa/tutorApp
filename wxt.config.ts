@@ -15,7 +15,7 @@ export default defineConfig({
     },
     web_accessible_resources: [
       {
-        resources: ["assets/*", "logo2.png"],
+        resources: ["assets/*", "tutor.png"],
         matches: ["<all_urls>"],
         // matches: ["https://leetcode.com/problems/*"],
       },

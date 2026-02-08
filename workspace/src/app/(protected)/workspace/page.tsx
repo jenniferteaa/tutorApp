@@ -19,29 +19,15 @@ export default async function WorkspacePage() {
       <h1 className="text-2xl">Hello {username}!</h1>
       {/* </div> */}
       <div className="mx-auto max-w-4xl mt-15">
-        <TopicModalGrid topics={topics} />
+        {topics.length === 0 ? (
+          <div className="mt-10 rounded-2xl border border-black/10 bg-white/70 px-6 py-8 text-center text-sm text-black/60 shadow-sm">
+            Hey! nothing here yet. Use the extension to start tracking!
+          </div>
+        ) : (
+          <TopicModalGrid topics={topics} />
+        )}
       </div>
       {/* </div> */}
     </main>
   );
 }
-
-// #F9FAFB
-
-// #F3F4F6
-
-// #E5E7EB
-
-// #D1D5DB
-
-// #9CA3AF
-
-// #6B7280
-
-// #4B5563
-
-// #374151 – primary text (soft black)
-
-// #1F2937 – very dark gray
-
-// #111827 – near black

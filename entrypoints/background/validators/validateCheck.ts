@@ -1,0 +1,32 @@
+import type { TopicsMap } from "../core/types";
+import { isTopicBucket } from "./shared";
+
+export function isCheckCodePayload(payload: unknown): payload is {
+  sessionId: string;
+  topics: TopicsMap;
+  code: string;
+  action?: string;
+  language: string;
+  problem_no: number | null;
+  problem_name: string;
+  problem_url: string;
+} {
+  if (typeof payload != "object" || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+
+  if (typeof p.sessionId !== "string") return false;
+  if (typeof p.topics !== "object" || p.topics === null) return false;
+  if (typeof p.code !== "string") return false;
+  if (typeof p.action !== "string") return false;
+  if (typeof p.language !== "string") return false;
+  if (
+    !("problem_no" in p) ||
+    (p.problem_no !== null && typeof p.problem_no !== "number")
+  )
+    return false;
+  if (typeof p.problem_name !== "string") return false;
+  if (typeof p.problem_url !== "string") return false;
+  return Object.values(p.topics as Record<string, unknown>).every(
+    isTopicBucket,
+  );
+}
