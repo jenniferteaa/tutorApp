@@ -23,6 +23,7 @@ import {
   hideWidget,
   positionWidgetFromPanel,
   showWidget,
+  setWidgetAttention,
 } from "../ui/widget";
 import { ensureAuthPrompt } from "../auth/overlay";
 import { resetGuideState } from "../guide";
@@ -198,6 +199,7 @@ export async function openTutorPanel() {
   syncSessionLanguageFromPage(scheduleSessionPersist);
   showTutorPanel(tutorPanel);
   hideWidget();
+  setWidgetAttention(false);
   state.isWindowOpen = true;
   markUserActivity();
   scheduleSessionPersist(tutorPanel);
@@ -232,6 +234,11 @@ export function closeTutorPanel() {
   hideTutorPanel(state.currentTutorSession.element);
   positionWidgetFromPanel(state.currentTutorSession.element);
   showWidget();
+  const hasActiveMode = Boolean(
+    state.currentTutorSession?.guideModeEnabled ||
+      state.currentTutorSession?.checkModeEnabled,
+  );
+  setWidgetAttention(hasActiveMode);
   state.isWindowOpen = false;
   scheduleSessionPersist(state.currentTutorSession.element);
 }
@@ -249,6 +256,7 @@ async function handleProblemUrlChange(nextUrl: string) {
   state.currentTutorSession = null;
   state.isWindowOpen = false;
   showWidget();
+  setWidgetAttention(false);
   await hydrateStoredSessionCache();
   if (wasOpen) {
     await waitForProblemTitle();

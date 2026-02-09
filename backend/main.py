@@ -222,7 +222,7 @@ def session_init(req: SessionInitPayload, authorization: str | None = Header(def
 def auth_login(req: LoginPayload):
     result = login_with_supabase(req.email, req.password)
     if not result:
-        return {"success": False, "error": "Invalidd credentials"}
+        return {"success": False, "error": "Invalid credentials"}
     return {"success": True, **result}
 
 @app.post("/api/auth/signup")

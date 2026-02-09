@@ -5,7 +5,7 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
     name: "tutor",
-    description: "AI tutor for DSA coding practice",
+    description: "AI-powered tutor for DSA coding practice",
     version: "1.0.0",
     icons: {
       16: "icon/16.png",

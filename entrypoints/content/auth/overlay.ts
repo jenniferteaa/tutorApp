@@ -123,7 +123,7 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
       if (data?.userId && data?.jwt) {
         await applyAuthSuccess(panel, authBox, data.userId, { unlockPanel });
       } else if (errorBox) {
-        console.log("this is the resp: ", resp);
+        //console.log("this is the resp: ", resp);
         errorBox.textContent = "Invalid creds";
         errorBox.style.display = "block";
       }
@@ -230,9 +230,15 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
         }
         return;
       }
-      const data = (resp as {
-        data?: { requiresVerification?: boolean; userId?: string; jwt?: string };
-      })?.data;
+      const data = (
+        resp as {
+          data?: {
+            requiresVerification?: boolean;
+            userId?: string;
+            jwt?: string;
+          };
+        }
+      )?.data;
       if (data?.requiresVerification) {
         renderLoginBox("Waiting for verification, check email");
       } else if (data?.userId && data?.jwt) {
