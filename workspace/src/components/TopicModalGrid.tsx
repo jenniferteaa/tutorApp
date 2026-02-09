@@ -155,9 +155,6 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
   }
 
   const notesSummary = active ? summaryToBullets(active.notesSummary) : [];
-  const pitfallsSummary = active
-    ? summaryToBullets(active.pitfallsSummary)
-    : [];
   const grouped = active ? groupRowsByProblem(active.rows) : [];
   const searchDigits = searchProblem.trim().replace(/[^\d]/g, "");
   const filteredGrouped =
@@ -238,25 +235,6 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                         ) : (
                           <p className="text-sm text-black/50">
                             No summary yet.
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <h3 className="text-lg font-semibold">
-                          Mistakes to Avoid
-                        </h3>
-                        {pitfallsSummary.length ? (
-                          <ul className="ml-5 list-disc text-base text-black/80">
-                            {pitfallsSummary.map((item, index) => (
-                              <li key={index}>
-                                <InlineMarkdown text={item} />
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-black/50">
-                            No pitfalls captured yet.
                           </p>
                         )}
                       </div>
