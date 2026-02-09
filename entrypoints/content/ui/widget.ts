@@ -83,13 +83,16 @@ export function createFloatingWidget() {
       justify-content: center;
       font-size: 20px;
       cursor: pointer;
-      box-shadow: 6px 6px 18px rgba(0,0,0,0.35);
       transition: all 0.3s ease;
-      /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
       color: #ffffff;
     }
+
+    .widget-main-button.is-attention {
+      animation: widgetBob 1.6s ease-in-out infinite;
+    }
+
 .widget-main-button .widget-icon {
       width: 34px;
       height: 34px;
@@ -133,6 +136,12 @@ export function createFloatingWidget() {
         0 8px 30px rgba(47,59,56,0.35),
       animation: none;
     }
+
+@keyframes widgetBob {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
       
     /* =========================
    PANEL - Better Layout
@@ -1019,6 +1028,16 @@ export function hideWidget() {
 export function showWidget() {
   if (state.widget) {
     state.widget.style.display = "block";
+  }
+}
+
+export function setWidgetAttention(enabled: boolean) {
+  const mainButton = document.getElementById("main-button");
+  if (!mainButton) return;
+  if (enabled) {
+    mainButton.classList.add("is-attention");
+  } else {
+    mainButton.classList.remove("is-attention");
   }
 }
 
