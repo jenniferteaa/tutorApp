@@ -9,7 +9,7 @@ function escapeHtml(value: string) {
 function formatInlineMarkdown(text: string) {
   const parts = text.split("`");
   const renderInlineMarkup = (value: string) => {
-    const regex = /(\*\*[^*\n]+\*\*|'[^'\n]+')/g;
+    const regex = /(\*\*[^*\n]+\*\*|(?<![\w])'[^'\n]+'(?![\w]))/g;
     let result = "";
     let lastIndex = 0;
     let match: RegExpExecArray | null;
@@ -108,10 +108,8 @@ function renderTextMarkdown(text: string) {
 
 function wrapTableLikeBlocks(text: string) {
   const lines = text.split("\n");
-  const isSeparator = (line: string) =>
-    /^\s*\|?[-:\s|]+\|?\s*$/.test(line);
-  const isTableLine = (line: string) =>
-    (line.match(/\|/g)?.length ?? 0) >= 2;
+  const isSeparator = (line: string) => /^\s*\|?[-:\s|]+\|?\s*$/.test(line);
+  const isTableLine = (line: string) => (line.match(/\|/g)?.length ?? 0) >= 2;
 
   let inCodeFence = false;
   const out: string[] = [];
@@ -209,8 +207,7 @@ export function renderMarkdown(message: string) {
         const langAttr = part.lang
           ? ` data-lang="${escapeHtml(part.lang)}"`
           : "";
-        const preClass =
-          part.lang === "table" ? ` class="table-block"` : "";
+        const preClass = part.lang === "table" ? ` class="table-block"` : "";
         return `<pre${preClass}><code${langAttr}>${escapeHtml(
           part.content.trimEnd(),
         )}</code></pre>`;

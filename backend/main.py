@@ -1,4 +1,6 @@
+import os
 from fastapi import FastAPI, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from services.llmRequests import (
     requestingCodeCheck,
@@ -21,7 +23,17 @@ from services.authService import (
 )
 from services.sessionState import init_session_state
 
+origins = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+
+
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class CodeRequest(BaseModel):
     sessionId: str
