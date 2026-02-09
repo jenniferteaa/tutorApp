@@ -33,7 +33,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/topics/${encodeURIComponent(topic.slug)}`);
+      const res = await fetch(`/api/topics/${encodeURIComponent(topic.label)}`);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || "Failed to load topic");
@@ -84,7 +84,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
     setError(null);
     try {
       const res = await fetch(
-        `/api/topics/${encodeURIComponent(active.topic.slug)}/summary`,
+        `/api/topics/${encodeURIComponent(active.topic.label)}/summary`,
         { method: "POST" },
       );
       if (!res.ok) {
@@ -133,7 +133,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
     setDeletingAttempt(deleteKey);
     try {
       const res = await fetch(
-        `/api/topics/${encodeURIComponent(active.topic.slug)}/attempt`,
+        `/api/topics/${encodeURIComponent(active.topic.label)}/attempt`,
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -144,7 +144,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
         const text = await res.text();
         throw new Error(text || "Failed to delete attempt");
       }
-      await reloadActive(active.topic.slug);
+      await reloadActive(active.topic.label);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to delete attempt";
@@ -155,9 +155,6 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
   }
 
   const notesSummary = active ? summaryToBullets(active.notesSummary) : [];
-  const pitfallsSummary = active
-    ? summaryToBullets(active.pitfallsSummary)
-    : [];
   const grouped = active ? groupRowsByProblem(active.rows) : [];
   const searchDigits = searchProblem.trim().replace(/[^\d]/g, "");
   const filteredGrouped =
@@ -169,7 +166,7 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
     <div className="relative">
       <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3">
         {topics.map((topic) => (
-          <TopicTile key={topic.slug} topic={topic} onClick={openTopic} />
+          <TopicTile key={topic.label} topic={topic} onClick={openTopic} />
         ))}
       </div>
 
@@ -242,25 +239,6 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                         )}
                       </div>
 
-                      <div className="space-y-2">
-                        <h3 className="text-lg font-semibold">
-                          Mistakes to Avoid
-                        </h3>
-                        {pitfallsSummary.length ? (
-                          <ul className="ml-5 list-disc text-base text-black/80">
-                            {pitfallsSummary.map((item, index) => (
-                              <li key={index}>
-                                <InlineMarkdown text={item} />
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-black/50">
-                            No pitfalls captured yet.
-                          </p>
-                        )}
-                      </div>
-
                       <div className="space-y-3">
                         <h3 className="text-lg font-semibold">
                           Problems Solved
@@ -312,31 +290,31 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
                               key={`${problem.problemNo}-${problem.problemName}`}
                               className="pb-6"
                             >
-                            <div className="flex flex-wrap items-center gap-3 text-base font-bold text-lg">
-                              {problem.problemLink ? (
-                                <a
-                                  className="hover:underline"
-                                  href={problem.problemLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {problem.problemName}
-                                </a>
-                              ) : (
-                                <span>{problem.problemName}</span>
-                              )}
-                              {problem.problemLink ? (
-                                <a
-                                  className="ml-1 inline-flex -translate-y-0.5 items-center rounded-md px-1 py-0.5 text-base text-black/70 hover:bg-black/5"
-                                  href={problem.problemLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Open problem"
-                                  aria-label="Open problem"
-                                >
-                                  ↗
-                                </a>
-                              ) : null}{" "}
+                              <div className="flex flex-wrap items-center gap-3 text-base font-bold text-lg">
+                                {problem.problemLink ? (
+                                  <a
+                                    className="hover:underline"
+                                    href={problem.problemLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {problem.problemName}
+                                  </a>
+                                ) : (
+                                  <span>{problem.problemName}</span>
+                                )}
+                                {problem.problemLink ? (
+                                  <a
+                                    className="ml-1 inline-flex -translate-y-0.5 items-center rounded-md px-1 py-0.5 text-base text-black/70 hover:bg-black/5"
+                                    href={problem.problemLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title="Open problem"
+                                    aria-label="Open problem"
+                                  >
+                                    ↗
+                                  </a>
+                                ) : null}{" "}
                                 <span className="text-sm font-semibold text-black/60">
                                   — {formatDate(latest.date)}
                                 </span>

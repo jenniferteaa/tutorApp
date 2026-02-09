@@ -178,11 +178,6 @@ def guide_mode_disable(
     topics_key = rkey("guide:topics", user_id, session_id)
 
     acc = get_json(topics_key) or {}
-    topics_count, thoughts_count, pitfalls_count = _topic_counts(acc)
-    # print(
-    #     "guide_mode_disable redis topics="
-    #     f"{topics_count} thoughts={thoughts_count} pitfalls={pitfalls_count}"
-    # )
     if not acc:
         r.delete(enabled_key, meta_key, topics_key)
         return
@@ -433,6 +428,7 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         {"nudge":"", "topics":{}}
 
         DO NOT:
+        - Ask user to fix incomplete assignment or code
         - Praise the code
         - Say it is correct
         - Explain reasoning
@@ -460,6 +456,20 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
         A “structural defect” means:
         - This line guarantees incorrect iteration (skip, duplicate, infinite loop), OR
         - This line forces unnecessary extra passes that are unavoidable due to this structure
+
+        OPTIMIZATION EXCEPTION (LIMITED):
+        You MAY suggest a micro-optimization ONLY IF:
+        - The Focus block performs multiple conditional branches
+        - AND all branches compute the same semantic result
+        - AND the optimization can be expressed as a SINGLE line replacement
+        - AND the replacement strictly reduces code paths without changing behavior
+
+        This exception applies ONLY to:
+        - Math.min / Math.max
+        - Equivalent constant-time replacements
+
+        This is NOT considered preemption or stylistic advice.
+
 
         Allowed structural examples:
         - Loop bounds that already skip indices
@@ -616,11 +626,9 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
     """
 
     try:
-        #print("these are the nudges given so far: ", nudgesSoFar)
         response = client.chat.completions.create(
-            # model="gpt-3.5-turbo",
-            # model="deepseek-reasoner",
-            model="gpt-4.1-mini-2025-04-14", # this made all the differnece! consider using groq
+
+            model="gpt-4.1-mini-2025-04-14",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -665,15 +673,9 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
                 topics_key = rkey("guide:topics", user_id, session_id)
                 incoming = data.get("topics") or {}
                 incoming = _wrap_topics_for_storage(incoming)
-                topics_count, thoughts_count, pitfalls_count = _topic_counts(incoming)
-                # print(
-                #     "guideModeAssist redis merge topics="
-                #     f"{topics_count} thoughts={thoughts_count} pitfalls={pitfalls_count}"
-                # )
                 r.eval(_LUA_MERGE_TOPICS, 1, topics_key, json.dumps(incoming), str(GUIDE_TTL_SECONDS))
             else:
                 print("guideModeAssist redis merge skipped: guide not enabled")
-        # # #print("LLM data: ", data)
         
 
         return data

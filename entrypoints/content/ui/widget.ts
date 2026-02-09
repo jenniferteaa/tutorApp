@@ -55,6 +55,7 @@ export function createFloatingWidget() {
   state.widget.innerHTML = `
   <div class="widget-main-button" id="main-button" aria-label="Open tutor panel">
     <img class="widget-icon" src="${tutorIconUrl}" alt="Tutor" />
+    <button class="widget-close" type="button" aria-label="Close widget">×</button>
   </div>
   `;
 
@@ -82,19 +83,51 @@ export function createFloatingWidget() {
       justify-content: center;
       font-size: 20px;
       cursor: pointer;
-      box-shadow: 6px 6px 18px rgba(0,0,0,0.35);
       transition: all 0.3s ease;
-      /*border: 2px solid rgba(255, 255, 255, 0.3); */
       backdrop-filter: blur(2px);
       position: relative;
       color: #ffffff;
     }
+
+    .widget-main-button.is-attention {
+      animation: widgetBob 1.6s ease-in-out infinite;
+    }
+
 .widget-main-button .widget-icon {
       width: 34px;
       height: 34px;
       object-fit: contain;
       display: block;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));
+    }
+.widget-main-button .widget-close {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: none;
+      background: #575757;
+      color: #ffffff;
+      font-size: 12px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: none;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 150ms ease;
+    }
+.widget-main-button:hover .widget-close {
+      opacity: 1;
+      pointer-events: auto;
+    }
+.widget-main-button .widget-close:hover {
+      color: #ffffff;
+      background: #0b0b0b;
     }
 .widget-main-button.dragging {
       cursor: grabbing !important;
@@ -103,6 +136,12 @@ export function createFloatingWidget() {
         0 8px 30px rgba(47,59,56,0.35),
       animation: none;
     }
+
+@keyframes widgetBob {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
       
     /* =========================
    PANEL - Better Layout
@@ -113,6 +152,7 @@ export function createFloatingWidget() {
   width: 430px;
   height: 280px;
 
+  /* background: linear-gradient(180deg, #eef3f1 0%, #f6f3ed 50%, #eef3f1 100%); */
   background: #EEF1F0;
   border-radius: 7px;
   border: none;
@@ -388,7 +428,7 @@ export function createFloatingWidget() {
   padding: 12px;
   overflow-x: hidden;
 
-  background: transparent;
+  background: #fbfbfb;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -831,6 +871,13 @@ export function createFloatingWidget() {
 
   const mainButton = document.getElementById("main-button");
   if (!mainButton || !state.widget) return;
+  const closeButton =
+    state.widget.querySelector<HTMLButtonElement>(".widget-close");
+  closeButton?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    hideWidget();
+  });
 
   // Click & drag logic
   let dragStartTime = 0;
@@ -981,6 +1028,16 @@ export function hideWidget() {
 export function showWidget() {
   if (state.widget) {
     state.widget.style.display = "block";
+  }
+}
+
+export function setWidgetAttention(enabled: boolean) {
+  const mainButton = document.getElementById("main-button");
+  if (!mainButton) return;
+  if (enabled) {
+    mainButton.classList.add("is-attention");
+  } else {
+    mainButton.classList.remove("is-attention");
   }
 }
 

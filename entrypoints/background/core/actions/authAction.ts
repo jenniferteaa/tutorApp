@@ -43,7 +43,7 @@ export async function supabaseLogin(payload: {
     return {
       success: false,
       status: result.status,
-      error: extractErrorMessage(result.data, "Invaliddd creds"),
+      error: extractErrorMessage(result.data, "Invalid creds"),
     };
   }
   const now = Date.now();

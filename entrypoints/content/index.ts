@@ -49,6 +49,7 @@ import {
   createFloatingWidget,
   hideWidget,
   loadWidgetPosition,
+  showWidget,
 } from "./ui/widget";
 
 export default defineContentScript({
@@ -170,7 +171,14 @@ function highlightExistingPanel(session: HTMLElement) {
 }
 
 function setupMessageListener() {
-  // dunno what this is
+  browser.runtime.onMessage.addListener((message) => {
+    if (!message || typeof message !== "object") return;
+    if ("action" in message && message.action === "show-widget") {
+      showWidget();
+      return Promise.resolve({ success: true });
+    }
+    return undefined;
+  });
 }
 
 function highlightAskArea() {

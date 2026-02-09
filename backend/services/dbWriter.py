@@ -94,7 +94,6 @@ def _log_discarded(incoming_topics: Any, kept_topics: Any) -> None:
 
         parts: list[str] = []
         if discarded_thoughts:
-            # print("55555757%%%%%%%%%%%%gkhl%%%%%%%%%%%%%%%%%%%%%%%%%%%68768979")
             shown = discarded_thoughts[:max_items]
             suffix = (
                 f" (+{len(discarded_thoughts) - max_items} more)"
@@ -103,7 +102,6 @@ def _log_discarded(incoming_topics: Any, kept_topics: Any) -> None:
             )
             parts.append(f"thoughts_discarded={shown}{suffix}")
         if discarded_pitfalls:
-            # print("55555757%%%%%%%%%%%%gkhl%%%%%%%%%%%%%%%%%%%%%%%%%%%68768979")
             shown = discarded_pitfalls[:max_items]
             suffix = (
                 f" (+{len(discarded_pitfalls) - max_items} more)"
@@ -178,23 +176,11 @@ def write_checkmode_result_v2(
       - note_topics: note_id, topic_id, UNIQUE(note_id, topic_id)
       - topic_notes: note_id, topic_id, note_made, pitfalls, UNIQUE(note_id, topic_id)
     """
-    print("entering to write to the db :\n")
     if not user_id or not response_text:
         return
     incoming_topics = topics
-    print("This is the incoming topics: \n", incoming_topics)
-    print()
-    # if topics and origin == "checkmode":
-    #     print("this is the topics: ",topics)
-    #     in_topics, in_thoughts, in_pitfalls = _topic_counts(topics) #getting the count of total topics, total thoughts and total pitfalls
-    #     print(
-    #         "dbWriter: incoming topics="
-    #         f"{in_topics} thoughts={in_thoughts} pitfalls={in_pitfalls} "
-    #         f"user={user_id} session={session_id}"
-    #     )
     if topics:
-        print("Topics received")
-        print()
+
         deduped_topics = dedupe_and_update_session_state(
             user_id,
             session_id,
@@ -208,8 +194,6 @@ def write_checkmode_result_v2(
             )
             return
         topics = deduped_topics
-        print("these are the deduped topics: ", deduped_topics)
-        print()
         _log_discarded(incoming_topics, topics)
         out_topics, out_thoughts, out_pitfalls = _topic_counts(topics)
         print(

@@ -46,11 +46,35 @@ export default defineBackground(() => {
     return true;
   });
 
-  browser.tabs.onUpdated.addListener(
-    (_tabId: any, changeInfo: any, tab: any) => {
-      if (changeInfo.status !== "complete" || !tab.url) {
-        return;
+  const isAllowedUrl = (url?: string) => {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.protocol === "https:" &&
+        parsed.hostname === "leetcode.com" &&
+        parsed.pathname.startsWith("/problems/")
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const updateActionForTab = async (tabId: number, url?: string) => {
+    try {
+      if (isAllowedUrl(url)) {
+        await browser.action.enable(tabId);
+      } else {
+        await browser.action.disable(tabId);
       }
+    } catch (error) {
+      console.debug("VibeTutor: failed to update action state", error);
+    }
+  };
+
+  browser.tabs.onUpdated.addListener(
+    (tabId: any, changeInfo: any, tab: any) => {
+      if (!tab.url) return;
 
       if (
         tab.url.startsWith("chrome://") ||
@@ -59,7 +83,30 @@ export default defineBackground(() => {
         return;
       }
 
+      if (changeInfo.status === "complete" || changeInfo.url) {
+        void updateActionForTab(tabId, tab.url);
+      }
+
       console.debug("VibeTutor: tab updated", tab.url);
     },
   );
+
+  browser.tabs.onActivated.addListener(async ({ tabId }) => {
+    try {
+      const tab = await browser.tabs.get(tabId);
+      await updateActionForTab(tabId, tab.url);
+    } catch (error) {
+      console.debug("VibeTutor: failed to update action on activate", error);
+    }
+  });
+
+  void browser.tabs
+    .query({ active: true, currentWindow: true })
+    .then((tabs) => {
+      const tab = tabs[0];
+      if (tab?.id) {
+        return updateActionForTab(tab.id, tab.url);
+      }
+      return undefined;
+    });
 });
