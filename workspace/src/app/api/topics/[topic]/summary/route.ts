@@ -18,14 +18,6 @@ type TopicNoteRow = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function normalizeTopicSlug(value: string) {
-  return decodeURIComponent(value)
-    .toLowerCase()
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function supabaseUrl(path: string, params: Record<string, string>) {
   const base = process.env.SUPABASE_URL?.replace(/\/$/, "");
   if (!base) return null;
@@ -57,7 +49,6 @@ async function supabaseFetch<T>(
     cache: "no-store",
   });
   if (!res.ok) {
-    //console.log("failed to hit supabase... ");
     const text = await res.text();
     throw new Error(text || `Supabase request failed: ${res.status}`);
   }
@@ -106,16 +97,14 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { topic } = await params;
-  const normalizedSlug = normalizeTopicSlug(topic);
+  const rawTopic = decodeURIComponent(topic);
 
   const topics = await supabaseFetch<TopicRow[]>(
     "topics",
     { select: "id,topic_name" },
     session.token,
   );
-  const matched = topics.find(
-    (row) => normalizeTopicSlug(row.topic_name || "") === normalizedSlug,
-  );
+  const matched = topics.find((row) => (row.topic_name || "") === rawTopic);
   if (!matched?.id) {
     return NextResponse.json({ error: "Topic not found" }, { status: 404 });
   }
@@ -130,7 +119,7 @@ export async function POST(
     },
     session.token,
   );
-  //console.log("this is the summary_rows: ", summaryRows);
+
   const existing = summaryRows[0];
   const updatedAt = existing?.updated_at
     ? Date.parse(existing.updated_at)
@@ -142,10 +131,14 @@ export async function POST(
   const isStale = updatedAt ? Date.now() - updatedAt >= DAY_MS : true;
 
   const needsSummary = !existing || !hasSummary || isStale;
-  console.log("needs summary?: ", needsSummary);
 
-  if (!needsSummary) {
-    return NextResponse.json({ success: true, skipped: true });
+  if (needsSummary === false) {
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      notes_summary: existing?.notes_summary ?? "",
+      pitfalls_summary: existing?.pitfalls_summary ?? "",
+    });
   }
 
   const lastTouched = existing?.last_touched_entry_id ?? 0;
@@ -154,19 +147,14 @@ export async function POST(
     topic_id: `eq.${matched.id}`,
     order: "note_id.asc",
   };
-  if (lastTouched > 0) {
+  if (hasSummary && lastTouched > 0) {
     noteParams.note_id = `gt.${lastTouched}`;
   }
-  if (existing?.updated_at) {
-    noteParams.created_at = `gte.${existing.updated_at}`;
-  }
-
   const topicNotes = await supabaseFetch<TopicNoteRow[]>(
     "topic_notes",
     noteParams,
     session.token,
   );
-  //console.log("this is the TopicNotes collected: ", topicNotes);
   const noteItems: string[] = [];
   const pitfallItems: string[] = [];
   let maxNoteId = lastTouched;
@@ -200,7 +188,6 @@ export async function POST(
   }
 
   const backendBase = process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
-  //console.log("this is the pitfalls list: ", pitfallsList);
   const llmResponse = await fetch(`${backendBase}/api/llm/topic-summary`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
