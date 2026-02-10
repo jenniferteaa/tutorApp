@@ -1,7 +1,9 @@
 fastapi
 uvicorn
+gunicorn
 openai
 python-dotenv
 requests
 redis
-gunicorn
+pydantic
+python-Levenshtein
