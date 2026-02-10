@@ -101,6 +101,12 @@ class BridgeConsumePayload(BaseModel):
     code: str
     state: str
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+
 @app.post("/api/llm")
 def llm(req: CodeRequest, authorization: str | None = Header(default=None)):
     match req.action:
