@@ -1,4 +1,4 @@
-Tutor-ai (Tutor)
+### Tutor-ai (Tutor)
 
 Tutor-ai is a Chrome extension + backend + workspace that turns LeetCode practice into guided learning. It adds a floating widget and tutor panel on problem pages, lets you ask questions about your code, runs check/guide modes, and stores structured notes in Supabase. A separate workspace app lets users review topics, attempts, and summaries.
 
