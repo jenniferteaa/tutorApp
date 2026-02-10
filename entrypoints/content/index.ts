@@ -163,7 +163,7 @@ function ensureLanguageObserver() {
   ensureLanguageObserverBase(scheduleSessionPersist);
 }
 
-const WORKSPACE_URL = "http://localhost:3000/auth/bridge";
+const WORKSPACE_URL = "https://tutor-app-kappa-weld.vercel.app/auth/bridge";
 
 // const WORKSPACE_URL = ""; // TODO: paste workspace auth-bridge URL here
 function highlightExistingPanel(session: HTMLElement) {
