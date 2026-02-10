@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
-from anthropic import Anthropic
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
 from services.dbWriter import write_checkmode_result_v2, buffer_guide_write, flush_guide_buffer, is_db_write_in_flight
@@ -14,9 +13,7 @@ from services.redisClient import r, rkey, set_json, get_json
 
 load_dotenv()
 
-# client2 = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-client = OpenAI()
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 GUIDE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
 
 _LUA_MERGE_TOPICS = """
