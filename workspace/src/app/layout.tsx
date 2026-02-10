@@ -3,9 +3,6 @@ import "./globals.css";
 
 export const metadata = {
   title: "Tutor notes",
-  icons: {
-    icon: "/icon.svg",
-  },
 };
 
 const inconsolata = Inconsolata({
