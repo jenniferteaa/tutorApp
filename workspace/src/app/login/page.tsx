@@ -95,9 +95,35 @@ async function registerAction(
 }
 
 export default function LoginPage() {
+  const backendBase = process.env.BACKEND_BASE_URL || "http://127.0.0.1:8000";
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[rgb(200,208,204)] px-6 text-slate-900">
-      <LoginForm loginAction={loginAction} registerAction={registerAction} />
+    <div className="min-h-screen bg-[#cbd2cd] text-slate-900">
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col justify-center gap-14 px-10 py-20 lg:flex-row lg:items-center lg:gap-20">
+        <div className="max-w-2xl">
+          <p className="text-base font-semibold uppercase tracking-[0.3em] text-slate-700">
+            Tutor-ai
+          </p>
+          <h1 className="mt-6 text-4xl font-semibold leading-snug text-slate-900">
+            An interactive AI tutor for smarter LeetCode practice.
+          </h1>
+          <p className="mt-6 text-lg leading-relaxed text-slate-700">
+            Practice with guided hints and clear explanations, then revisit your
+            learnings anytime in a dedicated workspace.
+          </p>
+          <p className="mt-10 text-base font-semibold text-slate-900">
+            {"<Available on the Chrome Web Store soon>"}
+          </p>
+        </div>
+
+        <div className="w-full max-w-lg">
+          <LoginForm
+            loginAction={loginAction}
+            registerAction={registerAction}
+            backendBase={backendBase}
+          />
+        </div>
+      </div>
     </div>
   );
 }

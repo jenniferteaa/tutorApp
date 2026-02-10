@@ -82,3 +82,7 @@ export function sendSupabaseSignup(payload: {
 export function sendGetMonacoCode() {
   return browser.runtime.sendMessage({ type: "GET_MONACO_CODE" });
 }
+
+export function sendBackendHealthCheck() {
+  return browser.runtime.sendMessage({ action: "backend-health" });
+}
