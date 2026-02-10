@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from models import RollingStateGuideMode, TopicNotes
 from pydantic import BaseModel
-from anthropic import Anthropic
 import json
 from services.dataProcessor import processingSimilarInputTopic, processingSimilarInputNudges
 from services.dbWriter import write_checkmode_result_v2, buffer_guide_write, flush_guide_buffer, is_db_write_in_flight
