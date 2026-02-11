@@ -208,8 +208,12 @@ async function flushGuideBatch(
 }
 
 async function drainGuideQueue() {
-  const { appendToContentPanel, handleBackendError, scheduleSessionPersist, syncSessionLanguageFromPage } =
-    getGuideDeps();
+  const {
+    appendToContentPanel,
+    handleBackendError,
+    scheduleSessionPersist,
+    syncSessionLanguageFromPage,
+  } = getGuideDeps();
 
   if (state.guideDrainInFlight) return;
   if (state.suspendPanelOps) {
@@ -263,8 +267,22 @@ async function drainGuideQueue() {
         console.log("failure for guide mode");
       } else {
         // Put this into a separate function
-        const reply = (resp as { data?: { reply?: unknown } })?.data?.reply;
-        if (reply?.state_update?.lastEdit?.trim() && state.currentTutorSession) {
+        type GuideReply = {
+          state_update?: { lastEdit?: string };
+          nudge?: string;
+          topics?: Record<
+            string,
+            {
+              thoughts_to_remember?: string[] | string;
+              pitfalls?: string[] | string;
+            }
+          >;
+        };
+        const reply = (resp as { data?: { reply?: GuideReply } })?.data?.reply;
+        if (
+          reply?.state_update?.lastEdit?.trim() &&
+          state.currentTutorSession
+        ) {
           state.currentTutorSession.rollingStateGuideMode.lastEdit =
             reply.state_update.lastEdit;
         }

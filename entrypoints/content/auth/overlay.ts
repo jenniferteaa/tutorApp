@@ -5,6 +5,7 @@ import {
   loginWithCredentials,
   signupWithCredentials,
 } from "./flow";
+import { sendBackendHealthCheck } from "../messaging";
 
 type AuthOverlayDeps = {
   stopPanelOperations: (panel: HTMLElement) => void;
@@ -12,6 +13,46 @@ type AuthOverlayDeps = {
 };
 
 let authOverlayDeps: AuthOverlayDeps | null = null;
+let authHealthInFlight = false;
+
+const AUTH_HEALTH_POLL_INTERVAL_MS = 5000;
+const AUTH_HEALTH_POLL_MAX_ATTEMPTS = 24; // 120 seconds total
+const AUTH_SERVER_STARTING = "Starting up the server...";
+const AUTH_SERVER_READY = "Server started. Logging you in...";
+const AUTH_SERVER_TIMEOUT = "Server is taking longer than usual. Please try again.";
+
+async function ensureBackendReadyForAuth(errorBox: HTMLElement | null) {
+  if (authHealthInFlight) return false;
+  authHealthInFlight = true;
+  try {
+    const initial = await sendBackendHealthCheck();
+    if (initial?.success) return true;
+    if (errorBox) {
+      errorBox.textContent = AUTH_SERVER_STARTING;
+      errorBox.style.display = "block";
+    }
+    for (let attempt = 0; attempt < AUTH_HEALTH_POLL_MAX_ATTEMPTS; attempt += 1) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, AUTH_HEALTH_POLL_INTERVAL_MS),
+      );
+      const health = await sendBackendHealthCheck();
+      if (health?.success) {
+        if (errorBox) {
+          errorBox.textContent = AUTH_SERVER_READY;
+          errorBox.style.display = "block";
+        }
+        return true;
+      }
+    }
+    if (errorBox) {
+      errorBox.textContent = AUTH_SERVER_TIMEOUT;
+      errorBox.style.display = "block";
+    }
+    return false;
+  } finally {
+    authHealthInFlight = false;
+  }
+}
 
 export function configureAuthOverlay(next: AuthOverlayDeps) {
   authOverlayDeps = next;
@@ -111,6 +152,8 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
       const email = emailInput?.value.trim() ?? "";
       const password = passwordInput?.value.trim() ?? "";
       if (!email || !password) return;
+      const ready = await ensureBackendReadyForAuth(errorBox ?? null);
+      if (!ready) return;
       const resp = await loginWithCredentials(email, password);
       if (resp?.success === false) {
         if (errorBox) {
@@ -217,6 +260,8 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
         }
         return;
       }
+      const ready = await ensureBackendReadyForAuth(errorBox ?? null);
+      if (!ready) return;
       const resp = await signupWithCredentials({
         fname,
         lname,

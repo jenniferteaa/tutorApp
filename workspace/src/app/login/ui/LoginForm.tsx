@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { ensureBackendReady } from "@/lib/backendWarmup";
 
 type AuthState = { error?: string; message?: string };
 
@@ -45,80 +46,24 @@ export default function LoginForm({
   const [isStartingServer, setIsStartingServer] = useState(false);
   const [serverStartError, setServerStartError] = useState<string | null>(null);
   const allowSubmitRef = useRef(false);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeState = mode === "login" ? loginState : registerState;
   const normalizedBackendBase = backendBase.replace(/\/$/, "");
-  const HEALTH_POLL_INTERVAL_MS = 5000;
-  const HEALTH_POLL_MAX_ATTEMPTS = 24;
-
-  useEffect(() => {
-    return () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-      }
-    };
-  }, []);
-
-  const checkBackendHealth = async () => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      const response = await fetch(`${normalizedBackendBase}/health`, {
-        method: "GET",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      return response.ok;
-    } catch {
-      return false;
-    }
-  };
 
   const waitForBackendAndSubmit = async (form: HTMLFormElement) => {
     if (isStartingServer) return;
     setServerStartError(null);
     setIsStartingServer(true);
-    let attempts = 0;
-
-    const isHealthy = await checkBackendHealth();
-    if (isHealthy) {
-      setIsStartingServer(false);
-      allowSubmitRef.current = true;
-      form.requestSubmit();
+    const ready = await ensureBackendReady(normalizedBackendBase);
+    setIsStartingServer(false);
+    if (!ready) {
+      setServerStartError(
+        "Server is taking longer than usual. Please try again.",
+      );
       return;
     }
-
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-    }
-
-    pollTimerRef.current = setInterval(async () => {
-      const healthy = await checkBackendHealth();
-      if (healthy) {
-        if (pollTimerRef.current) {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-        }
-        setIsStartingServer(false);
-        setServerStartError(null);
-        allowSubmitRef.current = true;
-        form.requestSubmit();
-        return;
-      }
-      attempts += 1;
-      if (attempts >= HEALTH_POLL_MAX_ATTEMPTS) {
-        if (pollTimerRef.current) {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-        }
-        setIsStartingServer(false);
-        setServerStartError(
-          "Server is taking longer than usual. Please try again.",
-        );
-      }
-    }, HEALTH_POLL_INTERVAL_MS);
+    allowSubmitRef.current = true;
+    form.requestSubmit();
   };
 
   const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
