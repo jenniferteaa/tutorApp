@@ -1,3 +1,4 @@
+import { sendBackendHealthCheck } from "../messaging";
 import { state } from "../state";
 import {
   applyAuthSuccess,
@@ -5,7 +6,6 @@ import {
   loginWithCredentials,
   signupWithCredentials,
 } from "./flow";
-import { sendBackendHealthCheck } from "../messaging";
 
 type AuthOverlayDeps = {
   stopPanelOperations: (panel: HTMLElement) => void;
@@ -15,11 +15,14 @@ type AuthOverlayDeps = {
 let authOverlayDeps: AuthOverlayDeps | null = null;
 let authHealthInFlight = false;
 
+const STARTING_COLOR = "#c58313";
+const READY_COLOR = "#136f35";
 const AUTH_HEALTH_POLL_INTERVAL_MS = 5000;
 const AUTH_HEALTH_POLL_MAX_ATTEMPTS = 24; // 120 seconds total
 const AUTH_SERVER_STARTING = "Starting up the server...";
 const AUTH_SERVER_READY = "Server started. Logging you in...";
-const AUTH_SERVER_TIMEOUT = "Server is taking longer than usual. Please try again.";
+const AUTH_SERVER_TIMEOUT =
+  "Server is taking longer than usual. Please try again.";
 
 async function ensureBackendReadyForAuth(errorBox: HTMLElement | null) {
   if (authHealthInFlight) return false;
@@ -29,9 +32,14 @@ async function ensureBackendReadyForAuth(errorBox: HTMLElement | null) {
     if (initial?.success) return true;
     if (errorBox) {
       errorBox.textContent = AUTH_SERVER_STARTING;
+      errorBox.style.color = STARTING_COLOR;
       errorBox.style.display = "block";
     }
-    for (let attempt = 0; attempt < AUTH_HEALTH_POLL_MAX_ATTEMPTS; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < AUTH_HEALTH_POLL_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
       await new Promise((resolve) =>
         setTimeout(resolve, AUTH_HEALTH_POLL_INTERVAL_MS),
       );
@@ -39,10 +47,12 @@ async function ensureBackendReadyForAuth(errorBox: HTMLElement | null) {
       if (health?.success) {
         if (errorBox) {
           errorBox.textContent = AUTH_SERVER_READY;
+          errorBox.style.color = READY_COLOR;
           errorBox.style.display = "block";
         }
         return true;
       }
+      console.log("pinging again");
     }
     if (errorBox) {
       errorBox.textContent = AUTH_SERVER_TIMEOUT;
@@ -152,7 +162,7 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
       const email = emailInput?.value.trim() ?? "";
       const password = passwordInput?.value.trim() ?? "";
       if (!email || !password) return;
-      const ready = await ensureBackendReadyForAuth(errorBox ?? null);
+      const ready = await ensureBackendReadyForAuth(errorBox ?? null); // maybe this is returning early
       if (!ready) return;
       const resp = await loginWithCredentials(email, password);
       if (resp?.success === false) {
@@ -166,7 +176,6 @@ export function ensureAuthPrompt(panel: HTMLElement, message?: string) {
       if (data?.userId && data?.jwt) {
         await applyAuthSuccess(panel, authBox, data.userId, { unlockPanel });
       } else if (errorBox) {
-        //console.log("this is the resp: ", resp);
         errorBox.textContent = "Invalid creds";
         errorBox.style.display = "block";
       }

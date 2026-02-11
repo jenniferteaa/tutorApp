@@ -652,7 +652,6 @@ def guideModeAssist(problem: str, topics: dict[str, TopicNotes], code: str, focu
             else:
                 data["topics"] = deduped
         data["isSimilar"] = isSimilar
-           
         
         nudges = data.get("nudge")
         isSimilarNudges = False

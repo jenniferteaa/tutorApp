@@ -581,7 +581,7 @@ export function createFloatingWidget() {
 }
 
 .tutor-panel-auth button:hover {
-  color: #2F3B38; /* pick the text color you want on hover */
+  color: #040605; /* pick the text color you want on hover */
 }
 
 .tutor-panel-auth .auth-supabase{

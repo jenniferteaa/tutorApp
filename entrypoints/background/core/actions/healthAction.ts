@@ -1,5 +1,5 @@
-import { BACKEND_BASE_URL } from "../constants";
 import { fetchJsonWithTimeout } from "../../helpers/httpClient";
+import { BACKEND_BASE_URL } from "../constants";
 
 export async function checkBackendHealth() {
   return fetchJsonWithTimeout<{ status?: string }>(
