@@ -3,6 +3,7 @@
 import InlineMarkdown from "@/components/InlineMarkdown";
 import { useToast } from "@/components/ToastProvider";
 import TopicTile from "@/components/TopicTile";
+import { ensureBackendReady } from "@/lib/backendWarmup";
 import { isMarkdownHeavy } from "@/lib/notesFormat";
 import { summaryToBullets } from "@/lib/text";
 import type { Topic, TopicDetails } from "@/lib/types";
@@ -19,7 +20,13 @@ function renderNoteContent(text: string) {
   return <InlineMarkdown text={text} />;
 }
 
-export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
+export default function TopicModalGrid({
+  topics,
+  backendBase,
+}: {
+  topics: Topic[];
+  backendBase: string;
+}) {
   const [active, setActive] = useState<TopicDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
@@ -30,9 +37,17 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
   const { pushToast } = useToast();
 
   async function openTopic(topic: Topic) {
-    setLoading(true);
     setError(null);
     try {
+      const ready = await ensureBackendReady(backendBase);
+      if (!ready) {
+        const message =
+          "Server is taking longer than usual. Please try again.";
+        setError(message);
+        pushToast(message, "error");
+        return;
+      }
+      setLoading(true);
       const res = await fetch(`/api/topics/${encodeURIComponent(topic.label)}`);
       if (!res.ok) {
         const text = await res.text();
@@ -53,9 +68,17 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
   }
 
   async function reloadActive(topicSlug: string) {
-    setLoading(true);
     setError(null);
     try {
+      const ready = await ensureBackendReady(backendBase);
+      if (!ready) {
+        const message =
+          "Server is taking longer than usual. Please try again.";
+        setError(message);
+        pushToast(message, "error");
+        return;
+      }
+      setLoading(true);
       const res = await fetch(`/api/topics/${encodeURIComponent(topicSlug)}`);
       if (!res.ok) {
         const text = await res.text();
@@ -80,9 +103,17 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
       return;
     }
     if (summarizing) return;
-    setSummarizing(true);
     setError(null);
     try {
+      const ready = await ensureBackendReady(backendBase);
+      if (!ready) {
+        const message =
+          "Server is taking longer than usual. Please try again.";
+        setError(message);
+        pushToast(message, "error");
+        return;
+      }
+      setSummarizing(true);
       const res = await fetch(
         `/api/topics/${encodeURIComponent(active.topic.label)}/summary`,
         { method: "POST" },
@@ -132,6 +163,13 @@ export default function TopicModalGrid({ topics }: { topics: Topic[] }) {
     const deleteKey = `${problemNo}-${dateKey}`;
     setDeletingAttempt(deleteKey);
     try {
+      const ready = await ensureBackendReady(backendBase);
+      if (!ready) {
+        const message =
+          "Server is taking longer than usual. Please try again.";
+        pushToast(message, "error");
+        return;
+      }
       const res = await fetch(
         `/api/topics/${encodeURIComponent(active.topic.label)}/attempt`,
         {

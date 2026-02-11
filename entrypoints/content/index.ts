@@ -55,9 +55,7 @@ import {
 export default defineContentScript({
   matches: ["https://leetcode.com/problems/*"],
   main() {
-    console.log(
-      "🎯 StickyNoteAI v2.2 CSS FIXED + MENU POSITIONING - Loading...",
-    );
+    console.log("Tutor - ai extension loaded.");
 
     // Wait for DOM to be ready
     if (document.readyState === "loading") {

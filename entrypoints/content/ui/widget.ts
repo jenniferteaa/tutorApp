@@ -54,7 +54,7 @@ export function createFloatingWidget() {
   state.widget.id = "tutor-widget";
   state.widget.innerHTML = `
   <div class="widget-main-button" id="main-button" aria-label="Open tutor panel">
-    <img class="widget-icon" src="${tutorIconUrl}" alt="Tutor" />
+    <img class="widget-icon" src="${tutorIconUrl}" alt="Tutor" draggable="false" />
     <button class="widget-close" type="button" aria-label="Close widget">×</button>
   </div>
   `;
@@ -99,6 +99,11 @@ export function createFloatingWidget() {
       object-fit: contain;
       display: block;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));
+      -webkit-user-drag: none;
+      user-drag: none;
+      user-select: none;
+      -webkit-user-select: none;
+      pointer-events: none;
     }
 .widget-main-button .widget-close {
       position: absolute;
@@ -576,7 +581,7 @@ export function createFloatingWidget() {
 }
 
 .tutor-panel-auth button:hover {
-  color: #2F3B38; /* pick the text color you want on hover */
+  color: #040605; /* pick the text color you want on hover */
 }
 
 .tutor-panel-auth .auth-supabase{
@@ -871,6 +876,12 @@ export function createFloatingWidget() {
 
   const mainButton = document.getElementById("main-button");
   if (!mainButton || !state.widget) return;
+  const widgetIcon =
+    state.widget.querySelector<HTMLImageElement>(".widget-icon");
+  if (widgetIcon) {
+    widgetIcon.draggable = false;
+    widgetIcon.addEventListener("dragstart", (e) => e.preventDefault());
+  }
   const closeButton =
     state.widget.querySelector<HTMLButtonElement>(".widget-close");
   closeButton?.addEventListener("click", (e) => {

@@ -1,4 +1,5 @@
 import { Inconsolata } from "next/font/google";
+import BackendStatusBanner from "@/components/BackendStatusBanner";
 import "./globals.css";
 
 export const metadata = {
@@ -22,6 +23,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${inconsolata.variable} antialiased`}
       >
+        <BackendStatusBanner />
         {children}
       </body>
     </html>

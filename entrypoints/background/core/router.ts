@@ -7,6 +7,7 @@ import { handleSaveNotes } from "./actions/notesAction";
 import { handleSessionInit } from "./actions/sessionAction";
 import { handleSummarize } from "./actions/summarizeAction";
 import { handleGoToWorkspace } from "./actions/workspaceAction";
+import { checkBackendHealth } from "./actions/healthAction";
 import { isSaveNotesPayload } from "../validators/shared";
 import { isGuideModePayload, isGuideModeStatusPayload } from "../validators/validateGuide";
 import { isCheckCodePayload } from "../validators/validateCheck";
@@ -105,6 +106,8 @@ export async function handleMessage(
     }
     case "clear-auth":
       return handleClearAuth();
+    case "backend-health":
+      return checkBackendHealth();
     case "panel-opened":
     case "panel-closed":
       console.debug(`VibeTutor: ${message.action}`, message.payload);

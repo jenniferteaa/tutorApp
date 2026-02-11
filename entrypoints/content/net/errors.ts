@@ -1,4 +1,5 @@
 import { state } from "../state";
+import { sendBackendHealthCheck } from "../messaging";
 
 export type BackendErrorResponse = {
   success: false;
@@ -36,6 +37,12 @@ function getErrorDeps(): ErrorDeps {
 }
 
 const SESSION_EXPIRED_MESSAGE = "Session expired, please log back in";
+const SERVER_STARTING_MESSAGE = "Starting up the server...";
+const SERVER_READY_MESSAGE = "Server is back. You can continue.";
+const HEALTH_POLL_INTERVAL_MS = 3000;
+const HEALTH_POLL_MAX_ATTEMPTS = 20;
+
+let healthCheckInFlight = false;
 
 export function lockPanel(panel: HTMLElement) {
   const { setPanelControlsDisabled } = getErrorDeps();
@@ -78,6 +85,41 @@ function appendSystemMessage(panel: HTMLElement, message: string) {
   if (!messageEl) return;
   contentArea.scrollTop = messageEl.offsetTop;
   scheduleSessionPersist(panel);
+}
+
+function isNetworkFailure(response: BackendErrorResponse) {
+  return Boolean(response.error && /network/i.test(response.error));
+}
+
+async function handleBackendTimeout(panel: HTMLElement, timeoutMessage?: string) {
+  if (healthCheckInFlight) return;
+  healthCheckInFlight = true;
+  try {
+    const initialHealth = await sendBackendHealthCheck();
+    if (initialHealth?.success) {
+      appendSystemMessage(
+        panel,
+        timeoutMessage ??
+          "The model is taking longer than usual. Please try again.",
+      );
+      return;
+    }
+
+    appendSystemMessage(panel, SERVER_STARTING_MESSAGE);
+
+    for (let attempt = 0; attempt < HEALTH_POLL_MAX_ATTEMPTS; attempt += 1) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, HEALTH_POLL_INTERVAL_MS),
+      );
+      const health = await sendBackendHealthCheck();
+      if (health?.success) {
+        appendSystemMessage(panel, SERVER_READY_MESSAGE);
+        return;
+      }
+    }
+  } finally {
+    healthCheckInFlight = false;
+  }
 }
 
 export function handleBackendError(
@@ -126,12 +168,8 @@ export function handleBackendError(
     return true;
   }
 
-  if (response.timeout) {
-    appendSystemMessage(
-      target,
-      options?.timeoutMessage ??
-        "The model is taking longer than usual. Please try again.",
-    );
+  if (response.timeout || isNetworkFailure(response)) {
+    void handleBackendTimeout(target, options?.timeoutMessage);
     return true;
   }
 
