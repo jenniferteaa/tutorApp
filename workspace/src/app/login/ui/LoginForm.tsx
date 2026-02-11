@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
-import type { FormEvent } from "react";
 import { ensureBackendReady } from "@/lib/backendWarmup";
+import type { FormEvent } from "react";
+import { useActionState, useRef, useState } from "react";
 
 type AuthState = { error?: string; message?: string };
 
@@ -73,11 +73,12 @@ export default function LoginForm({
     }
     event.preventDefault();
     const form = event.currentTarget;
-    const email = form.querySelector<HTMLInputElement>('input[name="email"]')
+    const email = form
+      .querySelector<HTMLInputElement>('input[name="email"]')
       ?.value.trim();
-    const password = form.querySelector<HTMLInputElement>(
-      'input[name="password"]',
-    )?.value.trim();
+    const password = form
+      .querySelector<HTMLInputElement>('input[name="password"]')
+      ?.value.trim();
     if (!email || !password) {
       allowSubmitRef.current = true;
       form.requestSubmit();
@@ -92,11 +93,14 @@ export default function LoginForm({
       return;
     }
     const form = event.currentTarget;
-    const fname = form.querySelector<HTMLInputElement>('input[name="fname"]')
+    const fname = form
+      .querySelector<HTMLInputElement>('input[name="fname"]')
       ?.value.trim();
-    const lname = form.querySelector<HTMLInputElement>('input[name="lname"]')
+    const lname = form
+      .querySelector<HTMLInputElement>('input[name="lname"]')
       ?.value.trim();
-    const email = form.querySelector<HTMLInputElement>('input[name="email"]')
+    const email = form
+      .querySelector<HTMLInputElement>('input[name="email"]')
       ?.value.trim();
     const passwordInput = form.querySelector<HTMLInputElement>(
       'input[name="password"]',
@@ -122,7 +126,7 @@ export default function LoginForm({
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.35em] text-slate-500">
-            VibeTutor Workspace
+            TutorAI Workspace
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">
             {mode === "login" ? "Sign in" : "Create account"}
@@ -211,13 +215,13 @@ export default function LoginForm({
             />
           </div>
 
-            <button
-              type="submit"
-              className="w-full rounded-2xl bg-black px-4 py-3 text-base font-semibold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isStartingServer}
-            >
-              Continue
-            </button>
+          <button
+            type="submit"
+            className="w-full rounded-2xl bg-black px-4 py-3 text-base font-semibold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={isStartingServer}
+          >
+            Continue
+          </button>
         </form>
       ) : (
         <form
@@ -293,13 +297,13 @@ export default function LoginForm({
             ) : null}
           </div>
 
-            <button
-              type="submit"
-              className="w-full rounded-2xl bg-black px-4 py-3 text-base font-semibold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isStartingServer}
-            >
-              Sign up
-            </button>
+          <button
+            type="submit"
+            className="w-full rounded-2xl bg-black px-4 py-3 text-base font-semibold text-white transition hover:bg-black/85 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={isStartingServer}
+          >
+            Sign up
+          </button>
         </form>
       )}
     </div>
