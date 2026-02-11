@@ -102,14 +102,14 @@ export default function LoginPage() {
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col justify-center gap-14 px-10 py-20 lg:flex-row lg:items-center lg:gap-20">
         <div className="max-w-2xl">
           <p className="text-base font-semibold uppercase tracking-[0.3em] text-slate-700">
-            Tutor-ai
+            TutorAI
           </p>
           <h1 className="mt-6 text-4xl font-semibold leading-snug text-slate-900">
             An interactive AI tutor for smarter LeetCode practice.
           </h1>
           <p className="mt-6 text-lg leading-relaxed text-slate-700">
             Practice with guided hints and clear explanations, then revisit your
-            learnings anytime in a dedicated workspace.
+            learnings anytime in this workspace.
           </p>
           <p className="mt-10 text-base font-semibold text-slate-900">
             {"<Available on the Chrome Web Store soon>"}
