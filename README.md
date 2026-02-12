@@ -18,6 +18,7 @@ Tutor-ai is a Chrome extension + backend + workspace that turns LeetCode practic
 - **Guide mode**: Provides incremental nudges as you write code. The panel can be closed while coding - feedback continues to accumulate for later review.
 - **Check mode**: Invoke after completing your solution. Returns structured feedback on correctness and reasoning.
 - **Notes made**: View the key learnings and generalized pitfalls extracted during your session. Organized by topic for quick and efficient review.
+- **Chat option**: Ask any questions or clarifications.
 
 **Features**
 - Floating widget and tutor panel on LeetCode `/problems/*` pages
