@@ -12,6 +12,13 @@ Tutor-ai is a Chrome extension + backend + workspace that turns LeetCode practic
 [TutorAI](https://tutor-app-kappa-weld.vercel.app/login)
 
 
+### How to use it?
+- Download the Chrome extension (available soon) from the workspace page.
+- Open any LeetCode problem - the extension activates automatically.
+- **Guide mode**: Provides incremental nudges as you write code. The panel can be closed while coding - feedback continues to accumulate for later review.
+- **Check mode**: Invoke after completing your solution. Returns structured feedback on correctness and reasoning.
+- **Notes made**: View the key learnings and generalized pitfalls extracted during your session. Organized by topic for quick and efficient review.
+
 **Features**
 - Floating widget and tutor panel on LeetCode `/problems/*` pages
 - Ask Anything: ask about your current code
